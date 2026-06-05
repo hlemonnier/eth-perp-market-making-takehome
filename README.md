@@ -1,17 +1,94 @@
-# Market Making — Take-Home
+# ETH Perpetual Market-Making Take-Home
 
-## Задание
+This repository contains the provided ETH perpetual take-home data and an event-driven market-making backtest implementation guided by [`market_making_blueprint.md`](market_making_blueprint.md).
 
-Спроектировать **market making** бота и **отбэктестить** его на **3 календарных дня** данных (2026-03-19 … 2026-03-21).
+## Assignment
 
-Ожидаемый результат: описание стратегии, симулятор (fills, инвентарь, PnL), метрики за период и краткие выводы.
+Design a market-making bot and backtest it on three calendar days of historical data, `2026-03-19` through `2026-03-21`.
 
-## Данные
+Expected output:
 
-Инструмент — **ETH perpetual** (~2200 USD), один рынок, без колонки символа.
+- Strategy description
+- Backtesting simulator with fills, inventory tracking, and PnL calculation
+- Performance metrics for the evaluation period
+- Brief conclusions and analysis
 
-| Папка | Файлы | Содержимое |
-|-------|--------|------------|
-| `data/orderbook/` | по файлу на день | Снимки стакана: 20 уровней bid/ask (`bid_price_i`, `ask_price_i`, `bid_qty_i`, `ask_qty_i`), `datetime` (наносекунды) |
-| `data/trades/` | по файлу на день | Сделки: `datetime`, `price`, `size`, `is_maker_ask` (1 — агрессор покупатель, 0 — агрессор продавец) |
-| `data/fundings/` | по файлу на день | Прогноз/ставка фандинга: `datetime`, `funding_rate` (~каждые 20 с) |
+## Data
+
+Instrument: single ETH perpetual market around 2200 USD.
+
+| Folder | Files | Contents |
+| --- | --- | --- |
+| `data/orderbook/` | one parquet per day | 20-level L2 snapshots: `datetime`, `bid_price_i`, `ask_price_i`, `bid_qty_i`, `ask_qty_i` |
+| `data/trades/` | one parquet per day | `datetime`, `price`, `size`, `is_maker_ask`; `1` means buyer aggressor hit resting asks, `0` means seller aggressor hit resting bids |
+| `data/fundings/` | one parquet per day | `datetime`, `funding_rate`, approximately every 20 seconds |
+
+The large order book parquet files are tracked with Git LFS. After cloning, run:
+
+```bash
+git lfs pull
+```
+
+## Implementation
+
+The code follows the blueprint module boundaries:
+
+- `src/market_maker/data_loader.py`: parquet loading, schema validation, timestamp normalization
+- `src/market_maker/data_audit.py`: data quality checks and tick-size inference
+- `src/market_maker/events.py`: deterministic timestamp-group event ordering
+- `src/market_maker/book_state.py`: BBO, mid, microprice, spread, depth, queue ahead
+- `src/market_maker/features.py`: past-only rolling volatility and trade imbalance
+- `src/market_maker/strategy.py`: maker-only inventory-skewed quoting logic
+- `src/market_maker/fill_model.py`: simple and conservative queue-ahead fill models
+- `src/market_maker/accounting.py`: cash, inventory, average cost, realized/unrealized PnL, fees, funding
+- `src/market_maker/risk.py`: inventory clipping, kill switch, cooldown, reduce-only window
+- `src/market_maker/simulator.py`: chronological event loop
+- `src/market_maker/metrics.py`: total, daily, fill, inventory, drawdown, realized spread metrics
+- `src/market_maker/reporting.py`: CSV outputs, plots, and Markdown report
+
+## Setup
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+## Run
+
+Audit only:
+
+```bash
+mm-backtest audit --output-dir reports/baseline
+```
+
+Audit plus baseline backtest:
+
+```bash
+mm-backtest run --output-dir reports/baseline
+```
+
+Run optimistic simple-fill sensitivity:
+
+```bash
+mm-backtest run --fill-model simple --output-dir reports/simple_fill
+```
+
+## Outputs
+
+The runner writes:
+
+- `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`
+- `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`
+- `fill_stats.csv`, `inventory_stats.csv`, `realized_spread.csv`
+- `final_report.md`
+- plots under `plots/`
+
+## Tests
+
+```bash
+pytest
+```
+
+The tests cover the toy examples from the blueprint: long/short PnL accounting, fees, funding, simple fills, conservative queue fills, same-timestamp no-fill ordering, inventory clipping, daily aggregation, no-lookahead feature state, and invalid crossed books.
