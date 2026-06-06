@@ -18,6 +18,7 @@ This file maps `market_making_blueprint.md` to the implemented project artifacts
 - Book monotonicity, crossed/locked books, spread/depth stats: `src/market_maker/data_audit.py`
 - Trade side/size, trade/book alignment age, visible-L2 price checks, funding gap/outlier checks: `src/market_maker/data_audit.py`
 - Tick-size inference: `src/market_maker/data_audit.py`
+- Audit fail-fast for backtests unless `--allow-audit-errors` is explicitly passed: `src/market_maker/cli.py`
 - Audit output: `reports/baseline/audit_summary.csv`
 
 ## Strategy and Simulator
@@ -27,17 +28,20 @@ This file maps `market_making_blueprint.md` to the implemented project artifacts
 - Inventory-skewed reservation price: `src/market_maker/strategy.py`
 - Adaptive spread, volatility buffer, pressure side-stop, cooldown: `src/market_maker/strategy.py`, `src/market_maker/features.py`
 - Inventory-aware size clipping and reduce-only EOD behavior: `src/market_maker/risk.py`, `src/market_maker/strategy.py`
+- Hard max quote age under queue-preserving refreshes: `src/market_maker/simulator.py`
+- Immediate kill-switch cancellation of live orders after drawdown breach: `src/market_maker/simulator.py`, `src/market_maker/risk.py`
 - Same-timestamp priority that prevents new quotes from filling immediately: `src/market_maker/simulator.py`, `tests/test_event_ordering.py`
 - Conservative and simple fill models: `src/market_maker/fill_model.py`
+- `src/market_maker/events.py` is retained as a reference event helper module; the simulator uses a faster array loop for report-scale runs.
 
 ## Accounting and Metrics
 
 - Cash, inventory, average cost, realized/unrealized PnL: `src/market_maker/accounting.py`
 - Fees and funding PnL: `src/market_maker/accounting.py`
 - Equity, liquidation-adjusted equity: `src/market_maker/accounting.py`, `src/market_maker/simulator.py`
-- Total/daily incremental PnL, fill statistics, order statistics, inventory statistics, event-level drawdown, Sharpe-like diagnostic: `src/market_maker/metrics.py`
-- Realized spread and adverse selection after fills: `src/market_maker/metrics.py`
-- CSVs, plots, config snapshot, fee sensitivity, final report: `src/market_maker/reporting.py`, `reports/baseline/`
+- Total/daily incremental PnL, fill statistics, order lifecycle/cancel statistics, inventory statistics, event-level drawdown, Sharpe-like diagnostic: `src/market_maker/metrics.py`
+- Realized spread and adverse selection after fills using event-level book marks when available: `src/market_maker/metrics.py`, `src/market_maker/simulator.py`
+- CSVs, plots, config snapshot, fee sensitivity, audit warning details, final report: `src/market_maker/reporting.py`, `reports/baseline/`
 
 ## Tests
 
@@ -48,6 +52,7 @@ This file maps `market_making_blueprint.md` to the implemented project artifacts
 - Inventory clipping, no-lookahead feature state, tick rounding, one-tick spread handling, reduce-only no-flip, daily aggregation/decomposition, bad data: `tests/test_risk_strategy_metrics.py`
 - Audit duplicate row, trade side/size, alignment age, and visible-L2 checks: `tests/test_data_audit.py`
 - Report fill-model wording and fee sensitivity: `tests/test_reporting.py`
+- Quote-age enforcement, immediate kill switch, event-level realized-spread marks, order lifecycle diagnostics, audit warning visibility, audit fail-fast, and fast book monotonicity: `tests/test_review_fixes.py`
 
 ## Verified Commands
 

@@ -9,3 +9,6 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Private review notes
+docs/second_pass_review_private.md

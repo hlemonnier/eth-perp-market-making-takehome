@@ -1,0 +1,7 @@
+reason,cancelled_orders,cancelled_before_active_orders
+refresh_reprice,94978,19087
+quote_age_expired,24204,0
+quote_crossed_after_book_update,6067,453
+refresh_no_desired_quote,4419,440
+jump_cooldown,187,88
+eod_reduce_only,3,0

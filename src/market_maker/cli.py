@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-dir", default=None, help="Override data directory.")
     parser.add_argument("--output-dir", default="reports/baseline", help="Output directory.")
     parser.add_argument("--fill-model", choices=["simple", "conservative_queue"], default=None, help="Override fill model.")
+    parser.add_argument("--allow-audit-errors", action="store_true", help="Run the backtest even when audit checks fail.")
     return parser.parse_args()
 
 
@@ -41,6 +42,9 @@ def run_command(args: argparse.Namespace) -> None:
     if args.command == "audit":
         print(f"Audit complete: passed={audit.passed}, tick_size={audit.tick_size}, output_dir={output_dir}")
         return
+
+    if not audit.passed and not getattr(args, "allow_audit_errors", False):
+        raise SystemExit(f"Audit failed; refusing to run backtest. Review {output_dir / 'audit_summary.csv'} or pass --allow-audit-errors.")
 
     simulator = Simulator(market_data, config, audit.tick_size)
     result = simulator.run()

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import numpy as np
 import pandas as pd
 import pytest
 
+from market_maker import cli
 from market_maker.accounting import AccountingState
 from market_maker.book_state import BookState
 from market_maker.config import AuditConfig, BacktestConfig, DataConfig, ExecutionConfig, RiskConfig, StrategyConfig
 from market_maker.data_audit import AuditResult, run_audit
 from market_maker.data_loader import MarketData
 from market_maker.features import RollingFeatures
-from market_maker.metrics import MetricsBundle, daily_summary
+from market_maker.metrics import MetricsBundle, daily_summary, realized_spread_stats, summarize_orders
 from market_maker.orders import LiveOrder, Side
 from market_maker.reporting import build_markdown_report
 from market_maker.simulator import BacktestResult, Simulator
@@ -21,6 +25,7 @@ def _config(
     fill_model: str = "simple",
     report_frequency: str = "1min",
     refresh_interval_seconds: int = 60,
+    max_quote_age_seconds: int = 600,
     max_drawdown_usd: float = 1_000.0,
     eod_reduce_window_minutes: int = 0,
 ) -> BacktestConfig:
@@ -52,7 +57,7 @@ def _config(
             w_book=0.0,
             w_trade=0.0,
             refresh_interval_seconds=refresh_interval_seconds,
-            max_quote_age_seconds=600,
+            max_quote_age_seconds=max_quote_age_seconds,
             requote_bbo_ticks=100,
             requote_delta_ticks=1,
             funding_retarget_threshold=1.0,
@@ -99,22 +104,26 @@ def _market_data(
     trades: list[dict[str, object]] | None = None,
     fundings: list[dict[str, object]] | None = None,
 ) -> MarketData:
+    trade_rows = (
+        trades
+        if trades is not None
+        else [
+            {
+                "datetime": pd.Timestamp("2026-03-19T00:00:01Z"),
+                "price": 99.0,
+                "size": 1.0,
+                "is_maker_ask": 0,
+                "_source_day": "2026-03-19",
+                "_row_id": 0,
+            }
+        ]
+    )
+    trades_df = pd.DataFrame(trade_rows)
+    if trades_df.empty:
+        trades_df = pd.DataFrame(columns=["datetime", "price", "size", "is_maker_ask", "_source_day", "_row_id"])
     return MarketData(
         orderbook=pd.DataFrame(orderbook if orderbook is not None else [_book_row("2026-03-19T00:00:00Z")]),
-        trades=pd.DataFrame(
-            trades
-            if trades is not None
-            else [
-                {
-                    "datetime": pd.Timestamp("2026-03-19T00:00:01Z"),
-                    "price": 99.0,
-                    "size": 1.0,
-                    "is_maker_ask": 0,
-                    "_source_day": "2026-03-19",
-                    "_row_id": 0,
-                }
-            ]
-        ),
+        trades=trades_df,
         fundings=pd.DataFrame(
             fundings
             if fundings is not None
@@ -399,3 +408,219 @@ def test_queue_ahead_includes_better_and_equal_price_depth():
 
     assert book.queue_ahead(Side.BID, 99.0) == pytest.approx(7.0)
     assert book.queue_ahead(Side.ASK, 102.0) == pytest.approx(8.0)
+
+
+def test_quote_preservation_does_not_bypass_max_quote_age():
+    data = _market_data(
+        orderbook=[
+            _book_row("2026-03-19T00:00:00Z", 99.0, 101.0, row_id=0),
+            _book_row("2026-03-19T00:00:10Z", 99.0, 101.0, row_id=1),
+            _book_row("2026-03-19T00:00:20Z", 99.0, 101.0, row_id=2),
+        ],
+        trades=[],
+    )
+    config = _config(refresh_interval_seconds=3600, max_quote_age_seconds=10)
+
+    result = Simulator(data, config, tick_size=1.0).run()
+
+    cancels = result.orders[result.orders["event"] == "cancelled"]
+    placed = result.orders[result.orders["event"] == "placed"]
+    assert "quote_age_expired" in set(cancels["reason"])
+    assert result.metrics.order_stats.iloc[0]["max_quote_lifetime_seconds"] <= 10.0
+    assert len(placed) > len(cancels)
+
+
+def test_expired_quote_cannot_fill_before_refresh():
+    data = _market_data(
+        orderbook=[_book_row("2026-03-19T00:00:00Z", 99.0, 101.0, row_id=0)],
+        trades=[
+            {
+                "datetime": pd.Timestamp("2026-03-19T00:00:11Z"),
+                "price": 99.0,
+                "size": 1.0,
+                "is_maker_ask": 0,
+                "_source_day": "2026-03-19",
+                "_row_id": 0,
+            }
+        ],
+    )
+    config = _config(refresh_interval_seconds=3600, max_quote_age_seconds=10)
+
+    result = Simulator(data, config, tick_size=1.0).run()
+
+    assert result.fills.empty
+    cancels = result.orders[result.orders["event"] == "cancelled"]
+    assert set(cancels["timestamp"]) == {pd.Timestamp("2026-03-19T00:00:10Z")}
+    assert set(cancels["reason"]) == {"quote_age_expired"}
+
+
+def test_kill_switch_cancels_live_orders_immediately_without_refresh():
+    timestamp = pd.Timestamp("2026-03-19T00:00:01Z")
+    simulator = Simulator(_market_data(), _config(refresh_interval_seconds=3600, max_drawdown_usd=1.0), tick_size=1.0)
+    simulator.book.update_from_row(pd.Series(_book_row(str(timestamp), 90.0, 92.0)))
+    simulator.account.cash = -100.0
+    simulator.account.inventory = 1.0
+    simulator.account.average_entry_price = 100.0
+    simulator.last_refresh_time = timestamp
+    simulator.last_bbo = (90.0, 92.0)
+    simulator.quote_state_dirty = False
+    simulator.active_orders[Side.BID] = LiveOrder(
+        order_id=1,
+        side=Side.BID,
+        price=90.0,
+        original_quantity=1.0,
+        remaining_quantity=1.0,
+        created_time=timestamp - pd.Timedelta(seconds=1),
+        active_time=timestamp - pd.Timedelta(seconds=1),
+    )
+
+    simulator._update_mark_and_strategy(timestamp)
+
+    assert simulator.risk.kill_switch_active
+    assert simulator.active_orders[Side.BID] is None
+    assert simulator.order_rows[-1]["event"] == "cancelled"
+    assert simulator.order_rows[-1]["reason"] == "kill_switch"
+
+
+def test_realized_spread_prefers_event_level_book_marks():
+    fills = pd.DataFrame(
+        [
+            {
+                "timestamp": pd.Timestamp("2026-03-19T00:00:00Z"),
+                "order_id": 1,
+                "side": "bid",
+                "price": 99.0,
+                "quantity": 1.0,
+                "mid_at_fill": 100.0,
+            }
+        ]
+    )
+    sampled_equity = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2026-03-19T00:01:00Z"], utc=True),
+            "mid": [200.0],
+        }
+    )
+    mark_curve = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2026-03-19T00:00:01Z"], utc=True),
+            "mid": [98.0],
+        }
+    )
+
+    stats = realized_spread_stats(fills, sampled_equity, mark_curve)
+    one_second = stats[stats["horizon_seconds"] == 1].iloc[0]
+
+    assert one_second["mark_source"] == "event_level_book"
+    assert one_second["average_realized_spread"] == pytest.approx(-1.0)
+
+
+def test_order_stats_expose_max_lifetime_and_filled_order_ratio():
+    orders = pd.DataFrame(
+        [
+            {
+                "timestamp": pd.Timestamp("2026-03-19T00:00:00Z"),
+                "order_id": 1,
+                "event": "placed",
+                "active_time": pd.Timestamp("2026-03-19T00:00:00Z"),
+            },
+            {
+                "timestamp": pd.Timestamp("2026-03-19T00:00:10Z"),
+                "order_id": 1,
+                "event": "cancelled",
+                "active_time": pd.Timestamp("2026-03-19T00:00:00Z"),
+            },
+            {
+                "timestamp": pd.Timestamp("2026-03-19T00:00:00Z"),
+                "order_id": 2,
+                "event": "placed",
+                "active_time": pd.Timestamp("2026-03-19T00:00:00Z"),
+            },
+        ]
+    )
+    fills = pd.DataFrame(
+        [
+            {
+                "timestamp": pd.Timestamp("2026-03-19T00:00:10Z"),
+                "order_id": 2,
+                "quantity": 1.0,
+                "price": 100.0,
+            }
+        ]
+    )
+
+    stats = summarize_orders(orders, fills).iloc[0]
+
+    assert stats["filled_orders"] == 1
+    assert stats["filled_order_ratio"] == pytest.approx(0.5)
+    assert stats["max_quote_lifetime_seconds"] == pytest.approx(10.0)
+    assert stats["p95_quote_lifetime_seconds"] == pytest.approx(10.0)
+
+
+def test_report_surfaces_audit_warnings_beyond_first_twenty_rows():
+    cfg = _config(fill_model="simple")
+    metrics = MetricsBundle(
+        overall=pd.DataFrame(),
+        daily=pd.DataFrame(),
+        fill_stats=pd.DataFrame(),
+        order_stats=pd.DataFrame(),
+        inventory_stats=pd.DataFrame(),
+        realized_spread=pd.DataFrame(),
+    )
+    result = BacktestResult(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), metrics, 0.0)
+    rows = [{"check": f"ok_{index}", "severity": "ok", "value": 0, "detail": "ok"} for index in range(25)]
+    rows.append({"check": "late_warning", "severity": "warn", "value": 1, "detail": "not hidden"})
+    audit = AuditResult(
+        tick_size=1.0,
+        summary=pd.DataFrame(rows),
+        warnings=["late_warning"],
+        spread_stats={"one_tick_or_less_pct": 0.0},
+        depth_stats={"bid_depth_1_p50": 1.0},
+    )
+
+    report = build_markdown_report(result, audit, cfg)
+
+    assert "### Audit Warning/Error Details" in report
+    assert "late_warning" in report
+    assert "not hidden" in report
+
+
+def test_cli_refuses_backtest_when_audit_has_errors_without_override(monkeypatch, tmp_path):
+    args = SimpleNamespace(
+        command="backtest",
+        config="config/default.yaml",
+        data_dir=None,
+        output_dir=str(tmp_path),
+        fill_model=None,
+        allow_audit_errors=False,
+    )
+    bad_audit = AuditResult(
+        tick_size=1.0,
+        summary=pd.DataFrame([{"check": "bad_book", "severity": "error", "value": 1, "detail": "bad"}]),
+        spread_stats={},
+        depth_stats={},
+    )
+
+    monkeypatch.setattr(cli, "load_config", lambda _: _config())
+    monkeypatch.setattr(cli, "load_market_data", lambda *_: _market_data())
+    monkeypatch.setattr(cli, "run_audit", lambda *_: bad_audit)
+    monkeypatch.setattr(cli, "write_audit_outputs", lambda *_: None)
+    monkeypatch.setattr(cli, "Simulator", lambda *_: pytest.fail("simulator should not run after audit errors"))
+
+    with pytest.raises(SystemExit, match="Audit failed; refusing to run backtest"):
+        cli.run_command(args)
+
+
+def test_fast_orderbook_update_validates_deeper_level_monotonicity():
+    book = BookState()
+
+    valid = book.fast_update_from_arrays(
+        timestamp=pd.Timestamp("2026-03-19T00:00:00Z"),
+        bid_prices=np.array([100.0, 101.0]),
+        bid_quantities=np.array([1.0, 1.0]),
+        ask_prices=np.array([102.0, 103.0]),
+        ask_quantities=np.array([1.0, 1.0]),
+    )
+
+    assert not valid
+    assert book.invalid_reason == "bid prices not monotone"

@@ -35,7 +35,7 @@ The code follows the blueprint module boundaries:
 
 - `src/market_maker/data_loader.py`: parquet loading, schema validation, timestamp normalization
 - `src/market_maker/data_audit.py`: data quality checks and tick-size inference
-- `src/market_maker/events.py`: deterministic timestamp-group event ordering
+- `src/market_maker/events.py`: reference timestamp-group event helpers; the simulator uses a faster array loop with the same trade-before-quote ordering
 - `src/market_maker/book_state.py`: BBO, mid, microprice, spread, depth, queue ahead
 - `src/market_maker/features.py`: past-only rolling volatility and trade imbalance
 - `src/market_maker/strategy.py`: maker-only inventory-skewed quoting logic
@@ -43,7 +43,7 @@ The code follows the blueprint module boundaries:
 - `src/market_maker/accounting.py`: cash, inventory, average cost, realized/unrealized PnL, fees, funding
 - `src/market_maker/risk.py`: inventory clipping, kill switch, cooldown, reduce-only window
 - `src/market_maker/simulator.py`: chronological event loop
-- `src/market_maker/metrics.py`: total, daily, fill, inventory, drawdown, realized spread metrics
+- `src/market_maker/metrics.py`: total, daily, fill, order-lifecycle, inventory, drawdown, realized spread metrics
 - `src/market_maker/reporting.py`: CSV outputs, plots, and Markdown report
 
 ## Setup
@@ -69,6 +69,8 @@ Audit plus baseline backtest:
 mm-backtest run --output-dir reports/baseline
 ```
 
+Backtests fail fast if the audit has error-severity checks. Use `--allow-audit-errors` only for deliberate diagnostics.
+
 Run aggressive simple-fill sensitivity:
 
 ```bash
@@ -81,7 +83,7 @@ The runner writes:
 
 - `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`
 - `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`
-- `fill_stats.csv`, `order_stats.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`
+- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`
 - `config_used.yaml`
 - `final_report.md`
 - plots under `plots/`
@@ -92,4 +94,4 @@ The runner writes:
 pytest
 ```
 
-The tests cover the toy examples from the blueprint plus the review-critical regressions: long/short PnL accounting, fees, funding, simple fills, conservative queue fills, same-timestamp no-fill ordering, cancellation timestamps, inventory clipping, reduce-only no-flip behavior, tick rounding, daily PnL decomposition, report fill-model text, and audit validation.
+The tests cover the toy examples from the blueprint plus the review-critical regressions: long/short PnL accounting, fees, funding, simple fills, conservative queue fills, same-timestamp no-fill ordering, cancellation timestamps, max quote age enforcement, immediate kill-switch cancellation, inventory clipping, reduce-only no-flip behavior, tick rounding, daily PnL decomposition, event-level realized-spread marks, report fill-model text, and audit validation/fail-fast behavior.

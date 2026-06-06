@@ -48,4 +48,4 @@ audit:
   stale_book_warn_ms: 1000.0
   one_tick_spread_warn_pct: 50.0
   funding_abs_warn_threshold: 0.01
-git_commit: c5e7f4f
+git_commit: 3ef9a11

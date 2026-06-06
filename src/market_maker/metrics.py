@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,7 @@ class MetricsBundle:
     order_stats: pd.DataFrame
     inventory_stats: pd.DataFrame
     realized_spread: pd.DataFrame
+    order_cancel_reasons: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def max_drawdown(equity: pd.Series) -> float:
@@ -84,19 +85,26 @@ def daily_summary(equity_curve: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFra
     return pd.DataFrame(rows)
 
 
-def realized_spread_stats(fills: pd.DataFrame, equity_curve: pd.DataFrame) -> pd.DataFrame:
-    if fills.empty or equity_curve.empty:
+def realized_spread_stats(fills: pd.DataFrame, equity_curve: pd.DataFrame, mark_curve: pd.DataFrame | None = None) -> pd.DataFrame:
+    if fills.empty:
         return pd.DataFrame()
-    curve = equity_curve[["timestamp", "mid"]].dropna().sort_values("timestamp")
+    mark_source = "event_level_book"
+    if mark_curve is not None and not mark_curve.empty:
+        curve = mark_curve[["timestamp", "mid"]].dropna().sort_values("timestamp").rename(columns={"timestamp": "mark_timestamp"})
+    elif not equity_curve.empty:
+        curve = equity_curve[["timestamp", "mid"]].dropna().sort_values("timestamp").rename(columns={"timestamp": "mark_timestamp"})
+        mark_source = "sampled_equity_curve"
+    else:
+        return pd.DataFrame()
     rows = []
     for horizon in [1, 5, 30]:
         future = curve.copy()
-        future["lookup_time"] = future["timestamp"]
+        future["lookup_time"] = future["mark_timestamp"]
         fill_lookup = fills.copy()
         fill_lookup["lookup_time"] = fill_lookup["timestamp"] + pd.Timedelta(seconds=horizon)
         aligned = pd.merge_asof(
             fill_lookup.sort_values("lookup_time"),
-            future[["lookup_time", "mid"]].sort_values("lookup_time"),
+            future[["lookup_time", "mark_timestamp", "mid"]].sort_values("lookup_time"),
             on="lookup_time",
             direction="forward",
         )
@@ -108,11 +116,16 @@ def realized_spread_stats(fills: pd.DataFrame, equity_curve: pd.DataFrame) -> pd
         sell = aligned["side"] == "ask"
         realized = np.where(sell, aligned["price"] - aligned["mid"], aligned["mid"] - aligned["price"])
         toxicity = np.where(sell, aligned["mid"] - aligned["mid_at_fill"], aligned["mid_at_fill"] - aligned["mid"])
+        lookup_lag_ms = (aligned["mark_timestamp"] - aligned["lookup_time"]).dt.total_seconds() * 1000.0
         rows.append(
             {
                 "horizon_seconds": horizon,
+                "mark_source": mark_source,
+                "marks_available": int(len(curve)),
                 "average_realized_spread": float(np.nanmean(realized)),
                 "average_toxicity": float(np.nanmean(toxicity)),
+                "median_mark_lookup_lag_ms": float(lookup_lag_ms.median()) if not lookup_lag_ms.empty else 0.0,
+                "max_mark_lookup_lag_ms": float(lookup_lag_ms.max()) if not lookup_lag_ms.empty else 0.0,
             }
         )
     return pd.DataFrame(rows)
@@ -124,6 +137,7 @@ def summarize_metrics(
     orders: pd.DataFrame,
     final_liquidation_adjusted_equity: float,
     event_max_drawdown_loss: float | None = None,
+    mark_curve: pd.DataFrame | None = None,
 ) -> MetricsBundle:
     if equity_curve.empty:
         empty = pd.DataFrame()
@@ -180,6 +194,7 @@ def summarize_metrics(
         )
 
     order_stats = summarize_orders(orders, fills)
+    order_cancel_reasons = summarize_order_cancel_reasons(orders)
 
     inventory = equity_curve["inventory"]
     inventory_stats = pd.DataFrame(
@@ -203,7 +218,8 @@ def summarize_metrics(
         fill_stats=fill_stats,
         order_stats=order_stats,
         inventory_stats=inventory_stats,
-        realized_spread=realized_spread_stats(fills, equity_curve),
+        realized_spread=realized_spread_stats(fills, equity_curve, mark_curve),
+        order_cancel_reasons=order_cancel_reasons,
     )
 
 
@@ -213,10 +229,18 @@ def summarize_orders(orders: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFrame:
             [
                 {
                     "placed_orders": 0,
+                    "filled_orders": 0,
                     "cancelled_orders": 0,
                     "resized_orders": 0,
                     "fill_to_order_ratio": 0.0,
+                    "filled_order_ratio": 0.0,
+                    "cancel_to_order_ratio": 0.0,
+                    "top_cancel_reason": "",
+                    "top_cancel_reason_count": 0,
                     "average_quote_lifetime_seconds": 0.0,
+                    "p95_quote_lifetime_seconds": 0.0,
+                    "max_quote_lifetime_seconds": 0.0,
+                    "cancelled_before_active_orders": 0,
                     "pct_orders_cancelled_before_active": 0.0,
                 }
             ]
@@ -227,19 +251,41 @@ def summarize_orders(orders: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFrame:
     resized = orders[orders["event"] == "resized"]
     fill_count = len(fills)
     fill_to_order_ratio = fill_count / len(placed) if len(placed) else 0.0
+    filled_orders = int(fills["order_id"].nunique()) if not fills.empty and "order_id" in fills.columns else 0
+    filled_order_ratio = filled_orders / len(placed) if len(placed) else 0.0
+    cancel_to_order_ratio = len(cancelled) / len(placed) if len(placed) else 0.0
+    cancel_reason_counts = cancelled["reason"].value_counts() if "reason" in cancelled.columns else pd.Series(dtype=int)
+    top_cancel_reason = str(cancel_reason_counts.index[0]) if not cancel_reason_counts.empty else ""
+    top_cancel_reason_count = int(cancel_reason_counts.iloc[0]) if not cancel_reason_counts.empty else 0
 
     lifetimes: list[float] = []
     cancelled_before_active = 0
-    if not placed.empty and not cancelled.empty:
+    if not placed.empty:
         placed_by_id = placed.drop_duplicates("order_id").set_index("order_id")
+        terminal_times: dict[object, pd.Timestamp] = {}
+        if not fills.empty and {"order_id", "timestamp"}.issubset(fills.columns):
+            fill_times = fills.groupby("order_id")["timestamp"].max()
+            terminal_times.update({order_id: pd.Timestamp(timestamp) for order_id, timestamp in fill_times.items()})
+        if not cancelled.empty:
+            cancel_times = cancelled.groupby("order_id")["timestamp"].max()
+            for order_id, timestamp in cancel_times.items():
+                cancelled_at = pd.Timestamp(timestamp)
+                previous_terminal = terminal_times.get(order_id)
+                if previous_terminal is None or cancelled_at > previous_terminal:
+                    terminal_times[order_id] = cancelled_at
+
+        for order_id, terminal_at in terminal_times.items():
+            if order_id not in placed_by_id.index:
+                continue
+            created = pd.Timestamp(placed_by_id.loc[order_id, "timestamp"])
+            lifetimes.append(max(0.0, (terminal_at - created).total_seconds()))
+
         for _, cancel in cancelled.iterrows():
             order_id = cancel["order_id"]
             if order_id not in placed_by_id.index:
                 continue
-            created = pd.Timestamp(placed_by_id.loc[order_id, "timestamp"])
             active_time = pd.Timestamp(placed_by_id.loc[order_id, "active_time"])
             cancelled_at = pd.Timestamp(cancel["timestamp"])
-            lifetimes.append(max(0.0, (cancelled_at - created).total_seconds()))
             if cancelled_at < active_time:
                 cancelled_before_active += 1
 
@@ -247,11 +293,40 @@ def summarize_orders(orders: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFrame:
         [
             {
                 "placed_orders": int(len(placed)),
+                "filled_orders": filled_orders,
                 "cancelled_orders": int(len(cancelled)),
                 "resized_orders": int(len(resized)),
                 "fill_to_order_ratio": float(fill_to_order_ratio),
+                "filled_order_ratio": float(filled_order_ratio),
+                "cancel_to_order_ratio": float(cancel_to_order_ratio),
+                "top_cancel_reason": top_cancel_reason,
+                "top_cancel_reason_count": top_cancel_reason_count,
                 "average_quote_lifetime_seconds": float(np.mean(lifetimes)) if lifetimes else 0.0,
+                "p95_quote_lifetime_seconds": float(np.percentile(lifetimes, 95)) if lifetimes else 0.0,
+                "max_quote_lifetime_seconds": float(np.max(lifetimes)) if lifetimes else 0.0,
+                "cancelled_before_active_orders": int(cancelled_before_active),
                 "pct_orders_cancelled_before_active": float(cancelled_before_active / len(cancelled) * 100.0) if len(cancelled) else 0.0,
             }
         ]
     )
+
+
+def summarize_order_cancel_reasons(orders: pd.DataFrame) -> pd.DataFrame:
+    columns = ["reason", "cancelled_orders", "cancelled_before_active_orders"]
+    if orders.empty or "reason" not in orders.columns:
+        return pd.DataFrame(columns=columns)
+    cancelled = orders[orders["event"] == "cancelled"].copy()
+    if cancelled.empty:
+        return pd.DataFrame(columns=columns)
+    cancelled["cancelled_before_active"] = pd.to_datetime(cancelled["timestamp"], utc=True) < pd.to_datetime(cancelled["active_time"], utc=True)
+    grouped = (
+        cancelled.groupby("reason", dropna=False)
+        .agg(
+            cancelled_orders=("order_id", "count"),
+            cancelled_before_active_orders=("cancelled_before_active", "sum"),
+        )
+        .reset_index()
+        .sort_values(["cancelled_orders", "reason"], ascending=[False, True])
+    )
+    grouped["cancelled_before_active_orders"] = grouped["cancelled_before_active_orders"].astype(int)
+    return grouped[columns]

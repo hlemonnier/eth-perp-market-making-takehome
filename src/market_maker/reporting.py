@@ -30,6 +30,7 @@ def write_outputs(
     result.metrics.daily.to_csv(output / "daily_pnl.csv", index=False)
     result.metrics.fill_stats.to_csv(output / "fill_stats.csv", index=False)
     result.metrics.order_stats.to_csv(output / "order_stats.csv", index=False)
+    result.metrics.order_cancel_reasons.to_csv(output / "order_cancel_reasons.csv", index=False)
     result.metrics.inventory_stats.to_csv(output / "inventory_stats.csv", index=False)
     result.metrics.realized_spread.to_csv(output / "realized_spread.csv", index=False)
     _fee_sensitivity(overall=result.metrics.overall).to_csv(output / "fee_sensitivity.csv", index=False)
@@ -49,6 +50,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
     overall = result.metrics.overall.iloc[0].to_dict() if not result.metrics.overall.empty else {}
     interpretation = _interpretation(overall)
     git_commit = _git_commit()
+    audit_issue_rows = audit.summary.loc[audit.summary["severity"] != "ok"].copy()
     lines = [
         "# ETH Perpetual Market-Making Backtest",
         "",
@@ -74,7 +76,11 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "### Audit Check Details",
         "",
-        _markdown_table(audit.summary),
+        _markdown_table(audit.summary, max_rows=100),
+        "",
+        "### Audit Warning/Error Details",
+        "",
+        _markdown_table(audit_issue_rows, max_rows=100),
         "",
         "### Spread Statistics",
         "",
@@ -110,11 +116,17 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         _markdown_table(result.metrics.order_stats),
         "",
+        "### Order Cancellation Reasons",
+        "",
+        _markdown_table(result.metrics.order_cancel_reasons, max_rows=100),
+        "",
         "## Inventory Statistics",
         "",
         _markdown_table(result.metrics.inventory_stats),
         "",
         "## Realized Spread and Adverse Selection",
+        "",
+        "Realized-spread horizons use event-level book marks computed during the simulation; if those marks are unavailable, the metrics are explicitly labeled as sampled-equity-curve marks. The lookup-lag columns report the delay from each target horizon to the next observed mark.",
         "",
         _markdown_table(result.metrics.realized_spread),
         "",
@@ -131,13 +143,13 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "- `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`",
         "- `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`",
-        "- `fill_stats.csv`, `order_stats.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`",
+        "- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`",
         "- `config_used.yaml`",
         "- `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`",
         "",
         "## Interpretation Discipline",
         "",
-        "Use the PnL decomposition rather than total PnL alone. Positive realized trading PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.",
+        "Use the PnL decomposition rather than total PnL alone. Positive realized trading PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory. Overall max drawdown is event-level; daily drawdown is a report-frequency diagnostic. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.",
     ]
     return "\n".join(lines) + "\n"
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import tanh
 
 import pandas as pd
@@ -24,6 +24,7 @@ class BacktestResult:
     orders: pd.DataFrame
     metrics: MetricsBundle
     final_liquidation_adjusted_equity: float
+    mark_curve: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 class Simulator:
@@ -55,6 +56,7 @@ class Simulator:
         self.last_funding_target: float | None = None
         self.quote_state_dirty = True
         self.equity_rows: list[dict[str, object]] = []
+        self.mark_rows: list[dict[str, object]] = []
         self.fill_rows: list[dict[str, object]] = []
         self.order_rows: list[dict[str, object]] = []
 
@@ -69,6 +71,7 @@ class Simulator:
             )
             timestamp = pd.Timestamp(next_ns, unit="ns", tz="UTC")
             self._accrue_funding(timestamp)
+            self._cancel_expired_orders(timestamp)
             self._enforce_reduce_only_orders(timestamp)
 
             while trade_i < arrays.trade_count and arrays.trade_times[trade_i] == next_ns:
@@ -104,12 +107,15 @@ class Simulator:
 
         liquidation_equity = self._liquidation_equity()
         equity_curve = pd.DataFrame(self.equity_rows)
+        mark_curve = pd.DataFrame(self.mark_rows)
+        if not mark_curve.empty:
+            mark_curve["timestamp"] = pd.to_datetime(mark_curve["timestamp"], utc=True)
         fills = pd.DataFrame(self.fill_rows)
         if not fills.empty:
             fills["timestamp"] = pd.to_datetime(fills["timestamp"], utc=True)
         orders = pd.DataFrame(self.order_rows)
-        metrics = summarize_metrics(equity_curve, fills, orders, liquidation_equity, self.risk.max_drawdown_loss)
-        return BacktestResult(equity_curve, fills, orders, metrics, liquidation_equity)
+        metrics = summarize_metrics(equity_curve, fills, orders, liquidation_equity, self.risk.max_drawdown_loss, mark_curve)
+        return BacktestResult(equity_curve, fills, orders, metrics, liquidation_equity, mark_curve)
 
     def _accrue_funding(self, timestamp: pd.Timestamp) -> None:
         if self.previous_timestamp is None or self.previous_mark is None:
@@ -169,6 +175,7 @@ class Simulator:
             else:
                 self.features.update_mid(pd.Timestamp(row["datetime"]), self.book.mid)
                 self.quote_state_dirty = True
+                self._record_mark(self.book.timestamp)
         if self.book.valid:
             self._cancel_crossed_quotes(self.book.timestamp)
 
@@ -186,6 +193,7 @@ class Simulator:
         elif self.book.valid:
             self.features.update_mid(timestamp, self.book.mid)
             self.quote_state_dirty = True
+            self._record_mark(timestamp)
             self._cancel_crossed_quotes(timestamp)
 
     def _process_fundings(self, indices: list[int]) -> None:
@@ -201,6 +209,25 @@ class Simulator:
         self.previous_mark = self.book.mid
         equity = self.account.equity(self.book.mid)
         self.risk.update_drawdown(timestamp, equity)
+
+        if self.risk.kill_switch_active:
+            decision = QuoteDecision(
+                bid_price=None,
+                bid_size=0.0,
+                ask_price=None,
+                ask_size=0.0,
+                fair_price=None,
+                reservation_price=None,
+                half_distance=None,
+                funding_target=0.0,
+                pressure=0.0,
+                reason="kill_switch",
+            )
+            self._cancel_all("kill_switch", timestamp)
+            self.force_refresh = False
+            self.quote_state_dirty = False
+            self._record(timestamp, decision, equity)
+            return
 
         decision: QuoteDecision | None = None
         if self._should_refresh(timestamp):
@@ -295,28 +322,31 @@ class Simulator:
             if price is None or size <= 1e-12:
                 self._cancel_order(side, "refresh_no_desired_quote", timestamp)
                 continue
-            if (
-                existing is not None
-                and existing.status == "live"
-                and abs(existing.price - price) / self.tick_size <= keep_ticks
-            ):
-                if existing.remaining_quantity > size:
-                    existing.remaining_quantity = size
-                    self.order_rows.append(
-                        {
-                            "timestamp": timestamp,
-                            "order_id": existing.order_id,
-                            "event": "resized",
-                            "side": side.value,
-                            "price": existing.price,
-                            "quantity": existing.remaining_quantity,
-                            "active_time": existing.active_time,
-                            "queue_ahead": existing.queue_ahead,
-                            "reason": "preserve_queue_priority",
-                        }
-                    )
-                continue
-            self._cancel_order(side, "refresh_reprice", timestamp)
+            if existing is not None and existing.status == "live":
+                price_distance_ticks = abs(existing.price - price) / self.tick_size
+                order_age_ns = timestamp.value - existing.created_time.value
+                if price_distance_ticks <= keep_ticks and order_age_ns < self.max_quote_age_ns:
+                    if existing.remaining_quantity > size:
+                        existing.remaining_quantity = size
+                        self.order_rows.append(
+                            {
+                                "timestamp": timestamp,
+                                "order_id": existing.order_id,
+                                "event": "resized",
+                                "side": side.value,
+                                "price": existing.price,
+                                "quantity": existing.remaining_quantity,
+                                "active_time": existing.active_time,
+                                "queue_ahead": existing.queue_ahead,
+                                "reason": "preserve_queue_priority",
+                            }
+                        )
+                    continue
+                cancel_reason = "quote_age_expired" if price_distance_ticks <= keep_ticks else "refresh_reprice"
+                cancel_time = self._quote_expiry_time(existing) if cancel_reason == "quote_age_expired" else timestamp
+                self._cancel_order(side, cancel_reason, cancel_time)
+            else:
+                self._cancel_order(side, "refresh_reprice", timestamp)
             self._place_order(timestamp, active_time, side, price, size)
 
     def _place_order(self, timestamp: pd.Timestamp, active_time: pd.Timestamp, side: Side, price: float, size: float) -> None:
@@ -368,6 +398,20 @@ class Simulator:
                 }
             )
         self.active_orders[side] = None
+
+    def _cancel_expired_orders(self, timestamp: pd.Timestamp) -> None:
+        expired = False
+        for side, order in list(self.active_orders.items()):
+            if order is None or order.status != "live":
+                continue
+            if timestamp.value - order.created_time.value >= self.max_quote_age_ns:
+                self._cancel_order(side, "quote_age_expired", self._quote_expiry_time(order))
+                expired = True
+        if expired:
+            self.force_refresh = True
+
+    def _quote_expiry_time(self, order: LiveOrder) -> pd.Timestamp:
+        return pd.Timestamp(order.created_time.value + self.max_quote_age_ns, unit="ns", tz="UTC")
 
     def _enforce_reduce_only_orders(self, timestamp: pd.Timestamp) -> None:
         if not self.config.risk.eod_reduce_window_minutes:
@@ -472,6 +516,19 @@ class Simulator:
                 "pressure": None if decision is None else decision.pressure,
                 "strategy_reason": None if decision is None else decision.reason,
                 "kill_switch": self.risk.kill_switch_active,
+            }
+        )
+
+    def _record_mark(self, timestamp: pd.Timestamp | None) -> None:
+        if timestamp is None or not self.book.valid:
+            return
+        self.mark_rows.append(
+            {
+                "timestamp": timestamp,
+                "mid": self.book.mid,
+                "best_bid": self.book.best_bid,
+                "best_ask": self.book.best_ask,
+                "spread": self.book.spread,
             }
         )
 
