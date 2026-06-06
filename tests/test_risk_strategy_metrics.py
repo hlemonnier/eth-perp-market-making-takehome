@@ -7,7 +7,7 @@ from market_maker.config import RiskConfig, StrategyConfig
 from market_maker.features import RollingFeatures
 from market_maker.metrics import daily_summary
 from market_maker.risk import RiskState, clip_quote_sizes
-from market_maker.strategy import MarketMakingStrategy
+from market_maker.strategy import MarketMakingStrategy, ceil_to_tick, floor_to_tick
 
 
 def strategy_config() -> StrategyConfig:
@@ -84,6 +84,76 @@ def test_strategy_uses_only_current_feature_state():
     assert decision_without_future.ask_price == decision_with_future_rows_present_but_not_processed.ask_price
 
 
+def test_tick_rounding_does_not_slip_one_tick_on_float_boundaries():
+    assert floor_to_tick(100.3, 0.1) == pytest.approx(100.3)
+    assert ceil_to_tick(100.1, 0.1) == pytest.approx(100.1)
+    assert floor_to_tick(100.29999999999998, 0.1) == pytest.approx(100.3)
+    assert ceil_to_tick(100.10000000000001, 0.1) == pytest.approx(100.1)
+
+
+def test_one_tick_float_spread_is_not_rejected_as_uneconomic():
+    timestamp = pd.Timestamp("2026-03-19T00:00:00Z")
+    bids = [(100.0 - (level - 1) * 0.1, 1.0) for level in range(1, 21)]
+    asks = [(100.09999999999991 + (level - 1) * 0.1, 1.0) for level in range(1, 21)]
+    book = BookState()
+    assert book.update(timestamp, bids, asks)
+    strategy = MarketMakingStrategy(strategy_config(), risk_config(), tick_size=0.1)
+
+    decision = strategy.quote(
+        timestamp,
+        book,
+        AccountingState(),
+        RollingFeatures(mid_window_seconds=60),
+        0.0,
+        RiskState(risk_config()),
+        timestamp + pd.Timedelta(days=1),
+    )
+
+    assert decision.reason == "ok"
+
+
+def test_eod_reduce_only_caps_size_and_blocks_flat_inventory():
+    cfg = strategy_config()
+    risk_cfg = risk_config()
+    strategy = MarketMakingStrategy(cfg, risk_cfg, tick_size=1.0)
+    features = RollingFeatures(mid_window_seconds=60)
+    timestamp = pd.Timestamp("2026-03-19T23:50:00Z")
+    day_end = pd.Timestamp("2026-03-20T00:00:00Z")
+    book = valid_book()
+
+    long_decision = strategy.quote(
+        timestamp,
+        book,
+        AccountingState(inventory=0.03, average_entry_price=100.0),
+        features,
+        0.0,
+        RiskState(risk_cfg),
+        day_end,
+    )
+    assert long_decision.bid_price is None
+    assert long_decision.bid_size == pytest.approx(0.0)
+    assert long_decision.ask_size == pytest.approx(0.03)
+
+    short_decision = strategy.quote(
+        timestamp,
+        book,
+        AccountingState(inventory=-0.04, average_entry_price=100.0),
+        features,
+        0.0,
+        RiskState(risk_cfg),
+        day_end,
+    )
+    assert short_decision.ask_price is None
+    assert short_decision.ask_size == pytest.approx(0.0)
+    assert short_decision.bid_size == pytest.approx(0.04)
+
+    flat_decision = strategy.quote(timestamp, book, AccountingState(), features, 0.0, RiskState(risk_cfg), day_end)
+    assert flat_decision.bid_price is None
+    assert flat_decision.ask_price is None
+    assert flat_decision.bid_size == pytest.approx(0.0)
+    assert flat_decision.ask_size == pytest.approx(0.0)
+
+
 def test_daily_aggregation_carries_equity():
     equity = pd.DataFrame(
         {
@@ -101,6 +171,30 @@ def test_daily_aggregation_carries_equity():
     )
     daily = daily_summary(equity, pd.DataFrame())
     assert daily["daily_pnl"].tolist() == pytest.approx([100.0, 30.0, -10.0])
+
+
+def test_daily_aggregation_reports_incremental_pnl_components():
+    equity = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                ["2026-03-19T23:59:00Z", "2026-03-20T23:59:00Z", "2026-03-21T23:59:00Z"],
+                utc=True,
+            ),
+            "equity": [15.9, 19.6, 17.1],
+            "realized_trading_pnl": [10.0, 15.0, 12.0],
+            "unrealized_trading_pnl": [5.0, 3.0, 4.0],
+            "funding_pnl": [1.0, 2.0, 1.5],
+            "fees": [0.1, 0.4, 0.4],
+            "inventory": [0.0, 0.0, 0.0],
+        }
+    )
+
+    daily = daily_summary(equity, pd.DataFrame())
+
+    assert daily["daily_realized_trading_pnl"].tolist() == pytest.approx([10.0, 5.0, -3.0])
+    assert daily["daily_unrealized_trading_pnl_change"].tolist() == pytest.approx([5.0, -2.0, 1.0])
+    assert daily["daily_funding_pnl"].tolist() == pytest.approx([1.0, 1.0, -0.5])
+    assert daily["daily_fees"].tolist() == pytest.approx([0.1, 0.3, 0.0])
 
 
 def test_bad_book_is_invalid():

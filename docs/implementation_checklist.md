@@ -14,9 +14,9 @@ This file maps `market_making_blueprint.md` to the implemented project artifacts
 ## Data Audit
 
 - Schema validation: `src/market_maker/data_loader.py`, `src/market_maker/data_audit.py`
-- Timestamp ordering, nulls, duplicates: `src/market_maker/data_audit.py`
+- Timestamp ordering, nulls, duplicates excluding loader metadata: `src/market_maker/data_audit.py`
 - Book monotonicity, crossed/locked books, spread/depth stats: `src/market_maker/data_audit.py`
-- Trade/book alignment and funding gap checks: `src/market_maker/data_audit.py`
+- Trade side/size, trade/book alignment age, visible-L2 price checks, funding gap/outlier checks: `src/market_maker/data_audit.py`
 - Tick-size inference: `src/market_maker/data_audit.py`
 - Audit output: `reports/baseline/audit_summary.csv`
 
@@ -35,16 +35,19 @@ This file maps `market_making_blueprint.md` to the implemented project artifacts
 - Cash, inventory, average cost, realized/unrealized PnL: `src/market_maker/accounting.py`
 - Fees and funding PnL: `src/market_maker/accounting.py`
 - Equity, liquidation-adjusted equity: `src/market_maker/accounting.py`, `src/market_maker/simulator.py`
-- Total/daily PnL, fill statistics, inventory statistics, drawdown, Sharpe-like metric: `src/market_maker/metrics.py`
+- Total/daily incremental PnL, fill statistics, order statistics, inventory statistics, event-level drawdown, Sharpe-like diagnostic: `src/market_maker/metrics.py`
 - Realized spread and adverse selection after fills: `src/market_maker/metrics.py`
-- CSVs, plots, final report: `src/market_maker/reporting.py`, `reports/baseline/`
+- CSVs, plots, config snapshot, fee sensitivity, final report: `src/market_maker/reporting.py`, `reports/baseline/`
 
 ## Tests
 
 - PnL accounting, fees, funding, mark-to-market: `tests/test_accounting.py`
 - Simple and queue fill behavior: `tests/test_fill_model.py`
 - Event ordering/no same-timestamp fill: `tests/test_event_ordering.py`
-- Inventory clipping, no-lookahead feature state, daily aggregation, bad data: `tests/test_risk_strategy_metrics.py`
+- Cancellation timestamps: `tests/test_event_ordering.py`
+- Inventory clipping, no-lookahead feature state, tick rounding, one-tick spread handling, reduce-only no-flip, daily aggregation/decomposition, bad data: `tests/test_risk_strategy_metrics.py`
+- Audit duplicate row, trade side/size, alignment age, and visible-L2 checks: `tests/test_data_audit.py`
+- Report fill-model wording and fee sensitivity: `tests/test_reporting.py`
 
 ## Verified Commands
 

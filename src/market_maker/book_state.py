@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 
 import numpy as np
 import pandas as pd
@@ -71,7 +72,7 @@ class BookState:
         best_ask = float(ask_prices[0])
         best_bid_qty = float(bid_quantities[0])
         best_ask_qty = float(ask_quantities[0])
-        if not np.isfinite([best_bid, best_ask, best_bid_qty, best_ask_qty]).all():
+        if not (isfinite(best_bid) and isfinite(best_ask) and isfinite(best_bid_qty) and isfinite(best_ask_qty)):
             self.valid, self.invalid_reason = False, "non-finite top of book"
         elif best_bid <= 0 or best_ask <= 0:
             self.valid, self.invalid_reason = False, "non-positive prices"

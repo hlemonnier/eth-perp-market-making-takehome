@@ -11,12 +11,15 @@ from market_maker.config import RiskConfig, StrategyConfig
 class RiskState:
     config: RiskConfig
     peak_equity: float = 0.0
+    max_drawdown_loss: float = 0.0
     kill_switch_active: bool = False
     cooldown_until: pd.Timestamp | None = None
 
     def update_drawdown(self, timestamp: pd.Timestamp, equity: float) -> None:
         self.peak_equity = max(self.peak_equity, equity)
-        if equity - self.peak_equity <= -self.config.max_drawdown_usd:
+        drawdown_loss = max(0.0, self.peak_equity - equity)
+        self.max_drawdown_loss = max(self.max_drawdown_loss, drawdown_loss)
+        if drawdown_loss >= self.config.max_drawdown_usd:
             self.kill_switch_active = True
 
     def start_cooldown(self, timestamp: pd.Timestamp) -> None:

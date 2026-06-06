@@ -27,11 +27,22 @@ class QuoteDecision:
 
 
 def floor_to_tick(price: float, tick: float) -> float:
-    return floor(price / tick) * tick
+    decimals = _price_decimals_from_tick(tick)
+    ticks = floor(price / tick + 1e-9)
+    return round(ticks * tick, decimals)
 
 
 def ceil_to_tick(price: float, tick: float) -> float:
-    return ceil(price / tick) * tick
+    decimals = _price_decimals_from_tick(tick)
+    ticks = ceil(price / tick - 1e-9)
+    return round(ticks * tick, decimals)
+
+
+def _price_decimals_from_tick(tick: float) -> int:
+    text = f"{tick:.10f}".rstrip("0")
+    if "." not in text:
+        return 0
+    return len(text.split(".")[1])
 
 
 class MarketMakingStrategy:
@@ -56,7 +67,7 @@ class MarketMakingStrategy:
             return self._empty("kill_switch")
         if risk.in_cooldown(timestamp):
             return self._empty("cooldown")
-        spread_ticks = book.spread / self.tick_size
+        spread_ticks = int(round(book.spread / self.tick_size))
         if spread_ticks < self.risk_config.min_economic_spread_ticks:
             return self._empty("uneconomic_spread")
 
@@ -91,9 +102,15 @@ class MarketMakingStrategy:
             ask_size = 0.0
 
         if is_reduce_only_window(timestamp, day_end, self.risk_config.eod_reduce_window_minutes):
-            if account.inventory > 0:
+            eps = 1e-12
+            if account.inventory > eps:
                 bid_size = 0.0
-            elif account.inventory < 0:
+                ask_size = min(ask_size, account.inventory)
+            elif account.inventory < -eps:
+                ask_size = 0.0
+                bid_size = min(bid_size, -account.inventory)
+            else:
+                bid_size = 0.0
                 ask_size = 0.0
 
         return QuoteDecision(

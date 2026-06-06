@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
+import subprocess
 
-import matplotlib.pyplot as plt
 import pandas as pd
+import yaml
 
 from market_maker.config import BacktestConfig
 from market_maker.data_audit import AuditResult
@@ -27,8 +29,11 @@ def write_outputs(
     result.metrics.overall.to_csv(output / "summary.csv", index=False)
     result.metrics.daily.to_csv(output / "daily_pnl.csv", index=False)
     result.metrics.fill_stats.to_csv(output / "fill_stats.csv", index=False)
+    result.metrics.order_stats.to_csv(output / "order_stats.csv", index=False)
     result.metrics.inventory_stats.to_csv(output / "inventory_stats.csv", index=False)
     result.metrics.realized_spread.to_csv(output / "realized_spread.csv", index=False)
+    _fee_sensitivity(overall=result.metrics.overall).to_csv(output / "fee_sensitivity.csv", index=False)
+    _write_config_snapshot(config, output)
 
     _plot_equity(result.equity_curve, plots / "equity_curve.png")
     _plot_inventory(result.equity_curve, plots / "inventory.png")
@@ -43,23 +48,41 @@ def write_outputs(
 def build_markdown_report(result: BacktestResult, audit: AuditResult, config: BacktestConfig) -> str:
     overall = result.metrics.overall.iloc[0].to_dict() if not result.metrics.overall.empty else {}
     interpretation = _interpretation(overall)
+    git_commit = _git_commit()
     lines = [
         "# ETH Perpetual Market-Making Backtest",
+        "",
+        "## Headline",
+        "",
+        "This is a simulator-validation baseline, not evidence of a proven profitable market-making strategy. Conservative fills are sparse, simple/aggressive fills expose adverse selection, and mark-to-market inventory can dominate headline PnL.",
         "",
         "## Assumptions",
         "",
         "- Strategy is maker-only and keeps at most one bid and one ask live.",
-        "- Official result uses the conservative queue-ahead fill model.",
+        f"- Fill model: `{config.execution.fill_model}`.",
         f"- Maker fee assumption: `{config.execution.maker_fee_bps}` bps.",
         f"- Latency assumption: `{config.execution.latency_ms}` ms.",
-        f"- Funding accrual uses latest known funding over `{config.execution.funding_period_hours}` hour periods.",
+        f"- Funding accrual uses latest known funding over `{config.execution.funding_period_hours}` hour periods; positive funding is assumed to mean longs pay shorts.",
         f"- Inferred tick size: `{audit.tick_size}`.",
         "- End inventory is marked to mid for baseline PnL and to bid/ask for liquidation-adjusted sensitivity.",
+        f"- Git commit: `{git_commit}`.",
         "",
         "## Audit Summary",
         "",
         f"- Audit passed: `{audit.passed}`.",
         f"- Warning checks: `{', '.join(audit.warnings) if audit.warnings else 'none'}`.",
+        "",
+        "### Audit Check Details",
+        "",
+        _markdown_table(audit.summary),
+        "",
+        "### Spread Statistics",
+        "",
+        _markdown_table(pd.DataFrame([audit.spread_stats])),
+        "",
+        "### Depth Statistics",
+        "",
+        _markdown_table(pd.DataFrame([audit.depth_stats])),
         "",
         "## Strategy",
         "",
@@ -83,6 +106,10 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         _markdown_table(result.metrics.fill_stats),
         "",
+        "## Order Statistics",
+        "",
+        _markdown_table(result.metrics.order_stats),
+        "",
         "## Inventory Statistics",
         "",
         _markdown_table(result.metrics.inventory_stats),
@@ -90,6 +117,10 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "## Realized Spread and Adverse Selection",
         "",
         _markdown_table(result.metrics.realized_spread),
+        "",
+        "## Maker Fee Sensitivity",
+        "",
+        _markdown_table(_fee_sensitivity(result.metrics.overall)),
         "",
         "## Conclusion",
         "",
@@ -100,14 +131,52 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "- `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`",
         "- `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`",
-        "- `fill_stats.csv`, `inventory_stats.csv`, `realized_spread.csv`",
+        "- `fill_stats.csv`, `order_stats.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`",
+        "- `config_used.yaml`",
         "- `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`",
         "",
         "## Interpretation Discipline",
         "",
-        "Use the PnL decomposition rather than total PnL alone. Positive realized trading PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory.",
+        "Use the PnL decomposition rather than total PnL alone. Positive realized trading PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _write_config_snapshot(config: BacktestConfig, output: Path) -> None:
+    raw = asdict(config)
+    raw["data"]["data_dir"] = str(raw["data"]["data_dir"])
+    raw["git_commit"] = _git_commit()
+    (output / "config_used.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
+
+
+def _fee_sensitivity(overall: pd.DataFrame, bps_values: tuple[float, ...] = (0.0, 1.0, 2.0)) -> pd.DataFrame:
+    if overall.empty:
+        return pd.DataFrame(columns=["maker_fee_bps", "estimated_fees", "estimated_total_pnl", "estimated_pnl_per_turnover"])
+    row = overall.iloc[0]
+    turnover = float(row.get("turnover_usd", 0.0))
+    total_pnl = float(row.get("total_pnl", 0.0))
+    current_fees = float(row.get("fees", 0.0))
+    pre_fee_pnl = total_pnl + current_fees
+    records = []
+    for maker_fee_bps in bps_values:
+        estimated_fees = turnover * maker_fee_bps / 10_000.0
+        estimated_total_pnl = pre_fee_pnl - estimated_fees
+        records.append(
+            {
+                "maker_fee_bps": maker_fee_bps,
+                "estimated_fees": estimated_fees,
+                "estimated_total_pnl": estimated_total_pnl,
+                "estimated_pnl_per_turnover": estimated_total_pnl / turnover if turnover else 0.0,
+            }
+        )
+    return pd.DataFrame(records)
+
+
+def _git_commit() -> str:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    except Exception:
+        return "unknown"
 
 
 def _markdown_table(df: pd.DataFrame, max_rows: int = 20) -> str:
@@ -159,9 +228,19 @@ def _interpretation(overall: dict[str, object]) -> str:
     return " ".join(parts)
 
 
+def _pyplot():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    return plt
+
+
 def _plot_equity(equity: pd.DataFrame, path: Path) -> None:
     if equity.empty:
         return
+    plt = _pyplot()
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(equity["timestamp"], equity["equity"], linewidth=1)
     ax.set_title("Equity Curve")
@@ -175,6 +254,7 @@ def _plot_equity(equity: pd.DataFrame, path: Path) -> None:
 def _plot_inventory(equity: pd.DataFrame, path: Path) -> None:
     if equity.empty:
         return
+    plt = _pyplot()
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(equity["timestamp"], equity["inventory"], linewidth=1)
     ax.set_title("Inventory")
@@ -188,6 +268,7 @@ def _plot_inventory(equity: pd.DataFrame, path: Path) -> None:
 def _plot_spread_histogram(equity: pd.DataFrame, path: Path) -> None:
     if equity.empty:
         return
+    plt = _pyplot()
     fig, ax = plt.subplots(figsize=(7, 4))
     equity["spread"].dropna().hist(ax=ax, bins=80)
     ax.set_title("Spread Distribution")
@@ -200,6 +281,7 @@ def _plot_spread_histogram(equity: pd.DataFrame, path: Path) -> None:
 def _plot_funding_inventory(equity: pd.DataFrame, path: Path) -> None:
     if equity.empty:
         return
+    plt = _pyplot()
     fig, ax1 = plt.subplots(figsize=(10, 4))
     ax1.plot(equity["timestamp"], equity["inventory"], linewidth=1, label="Inventory")
     ax1.set_ylabel("Inventory ETH")
@@ -216,6 +298,7 @@ def _plot_funding_inventory(equity: pd.DataFrame, path: Path) -> None:
 def _plot_fills(equity: pd.DataFrame, fills: pd.DataFrame, path: Path) -> None:
     if equity.empty:
         return
+    plt = _pyplot()
     fig, ax = plt.subplots(figsize=(10, 4))
     sampled = equity.iloc[:: max(1, len(equity) // 50_000)]
     ax.plot(sampled["timestamp"], sampled["mid"], linewidth=0.8, label="Mid")

@@ -48,3 +48,7 @@ audit:
   max_funding_staleness_seconds: 120
   trade_alignment_tolerance_ticks: 2
   tick_sample_size: 250000
+  mid_jump_warn_ticks: 20.0
+  stale_book_warn_ms: 1000.0
+  one_tick_spread_warn_pct: 50.0
+  funding_abs_warn_threshold: 0.01

@@ -63,6 +63,10 @@ class AuditConfig:
     max_funding_staleness_seconds: int
     trade_alignment_tolerance_ticks: int
     tick_sample_size: int
+    mid_jump_warn_ticks: float = 20.0
+    stale_book_warn_ms: float = 1000.0
+    one_tick_spread_warn_pct: float = 50.0
+    funding_abs_warn_threshold: float = 0.01
 
 
 @dataclass(frozen=True)

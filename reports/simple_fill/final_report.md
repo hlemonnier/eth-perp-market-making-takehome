@@ -1,19 +1,63 @@
 # ETH Perpetual Market-Making Backtest
 
+## Headline
+
+This is a simulator-validation baseline, not evidence of a proven profitable market-making strategy. Conservative fills are sparse, simple/aggressive fills expose adverse selection, and mark-to-market inventory can dominate headline PnL.
+
 ## Assumptions
 
 - Strategy is maker-only and keeps at most one bid and one ask live.
-- Official result uses the conservative queue-ahead fill model.
+- Fill model: `simple`.
 - Maker fee assumption: `0.0` bps.
 - Latency assumption: `250` ms.
-- Funding accrual uses latest known funding over `8.0` hour periods.
+- Funding accrual uses latest known funding over `8.0` hour periods; positive funding is assumed to mean longs pay shorts.
 - Inferred tick size: `0.1`.
 - End inventory is marked to mid for baseline PnL and to bid/ask for liquidation-adjusted sensitivity.
+- Git commit: `c5e7f4f`.
 
 ## Audit Summary
 
 - Audit passed: `True`.
-- Warning checks: `trades_duplicate_timestamps, trade_book_alignment`.
+- Warning checks: `trades_duplicate_timestamps, one_tick_spread_share, mid_jump_outliers, trade_book_alignment, trade_book_alignment_age_ms`.
+
+### Audit Check Details
+
+| check | severity | value | detail |
+| --- | --- | --- | --- |
+| orderbook_schema | ok | 0 | missing=[] |
+| trades_schema | ok | 0 | missing=[] |
+| fundings_schema | ok | 0 | missing=[] |
+| orderbook_timestamp_order | ok | 0 | negative timestamp diffs |
+| orderbook_missing_values | ok | 0 | null cells |
+| orderbook_duplicate_rows | ok | 0 | exact duplicate rows excluding loader metadata |
+| orderbook_duplicate_timestamps | ok | 0 | duplicate timestamps; pct=0.0000 |
+| trades_timestamp_order | ok | 0 | negative timestamp diffs |
+| trades_missing_values | ok | 0 | null cells |
+| trades_duplicate_rows | ok | 0 | exact duplicate rows excluding loader metadata |
+| trades_duplicate_timestamps | warn | 21530 | duplicate timestamps; pct=30.5148 |
+| fundings_timestamp_order | ok | 0 | negative timestamp diffs |
+| fundings_missing_values | ok | 0 | null cells |
+| fundings_duplicate_rows | ok | 0 | exact duplicate rows excluding loader metadata |
+| fundings_duplicate_timestamps | ok | 0 | duplicate timestamps; pct=0.0000 |
+| orderbook_bid_monotonicity | ok | 0 | rows with increasing bid levels |
+| orderbook_ask_monotonicity | ok | 0 | rows with decreasing ask levels |
+| orderbook_negative_quantities | ok | 0 | rows with negative qty |
+| orderbook_locked_or_crossed | ok | 0 | rows with bid >= ask |
+| tick_inference | ok | 0.1 | modal positive price increment |
+
+_Showing 20 of 36 rows._
+
+### Spread Statistics
+
+| tick_size | spread_min | spread_p05 | spread_p50 | spread_p95 | spread_p99 | spread_max | spread_ticks_p50 | one_tick_or_less_pct |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.1 | 0.1 | 0.1 | 0.1 | 0.1 | 0.1 | 2.7 | 1 | 80.4991 |
+
+### Depth Statistics
+
+| bid_depth_1_p50 | ask_depth_1_p50 | bid_depth_5_p50 | ask_depth_5_p50 | bid_depth_10_p50 | ask_depth_10_p50 | bid_depth_20_p50 | ask_depth_20_p50 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 33.402 | 32.717 | 147.02 | 150.068 | 257.805 | 282.256 | 721.397 | 704.369 |
 
 ## Strategy
 
@@ -21,63 +65,79 @@ Fair value combines mid, microprice, and past-only trade imbalance. Quotes use a
 
 ## Results
 
-- `total_pnl`: `-10.174922570107897`
-- `realized_trading_pnl`: `-9.826689015333898`
-- `unrealized_trading_pnl`: `-0.6235789001586057`
-- `funding_pnl`: `0.2753453453846977`
+- `total_pnl`: `-30.36097682278542`
+- `realized_trading_pnl`: `-30.695593444272088`
+- `unrealized_trading_pnl`: `0.0`
+- `funding_pnl`: `0.3346166214854924`
 - `fees`: `0.0`
-- `liquidation_adjusted_pnl`: `-10.175392486385332`
-- `total_fills`: `85.0`
-- `fill_volume_eth`: `8.540931780727295`
-- `turnover_usd`: `18354.530691167045`
-- `max_inventory`: `0.5112305730310635`
-- `min_inventory`: `-0.4714267073195671`
-- `mean_abs_inventory`: `0.14701059558288349`
-- `max_drawdown`: `22.43805100709705`
-- `sharpe_like_1m`: `-0.26311711617660705`
-- `pnl_per_turnover`: `-0.0005543548206876512`
-- `pnl_per_eth`: `-1.1913129423498874`
+- `liquidation_adjusted_pnl`: `-30.36097682278542`
+- `total_fills`: `894.0`
+- `fill_volume_eth`: `80.70585558285516`
+- `turnover_usd`: `173676.43427150417`
+- `max_inventory`: `0.49487042616451543`
+- `min_inventory`: `-0.4757443316385213`
+- `mean_abs_inventory`: `0.15461624281739197`
+- `max_drawdown`: `35.588139517511344`
+- `sampled_1m_max_drawdown`: `35.42287936722122`
+- `sharpe_like_1m`: `-0.798997035369635`
+- `pnl_per_turnover`: `-0.00017481345094477724`
+- `pnl_per_eth`: `-0.3761929862897729`
 
 ## Daily PnL
 
-| date | starting_equity | ending_equity | daily_pnl | realized_trading_pnl | unrealized_trading_pnl | funding_pnl | fees | bid_fills | ask_fills | bid_volume_eth | ask_volume_eth | average_inventory | max_abs_inventory | max_drawdown |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-03-19 | 0 | -12.6542 | -12.6542 | -14.2351 | 1.5072 | 0.0736893 | 0 | 16 | 19 | 1.60024 | 1.90017 | 0.022694 | 0.461692 | 22.4381 |
-| 2026-03-20 | -12.6542 | -7.67751 | 4.97667 | -8.23512 | 0.379986 | 0.177621 | 0 | 17 | 16 | 1.62381 | 1.63948 | 0.0860344 | 0.511231 | 11.7279 |
-| 2026-03-21 | -7.67751 | -10.1749 | -2.49741 | -9.82669 | -0.623579 | 0.275345 | 0 | 10 | 7 | 1.05112 | 0.726119 | -0.0751431 | 0.471427 | 5.62936 |
+| date | starting_equity | ending_equity | daily_pnl | daily_realized_trading_pnl | daily_unrealized_trading_pnl_change | daily_funding_pnl | daily_fees | ending_realized_trading_pnl | ending_unrealized_trading_pnl | ending_funding_pnl | ending_fees | bid_fills | ask_fills | bid_volume_eth | ask_volume_eth | average_inventory | max_abs_inventory | max_drawdown |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-19 | 0 | -8.60433 | -8.60433 | -8.6893 | 0 | 0.0849694 | 0 | -8.6893 | 0 | 0.0849694 | 0 | 184 | 187 | 17.1216 | 17.1216 | 0.063318 | 0.435385 | 22.3432 |
+| 2026-03-20 | -8.60433 | -28.725 | -20.1206 | -20.3259 | 0.0707781 | 0.134528 | 0 | -29.0152 | 0.0707781 | 0.219498 | 0 | 170 | 178 | 15.4025 | 15.5566 | 0.116748 | 0.49487 | 24.6816 |
+| 2026-03-21 | -28.725 | -30.361 | -1.63602 | -1.68036 | -0.0707781 | 0.115119 | 0 | -30.6956 | 0 | 0.334617 | 0 | 86 | 89 | 7.82884 | 7.67479 | -0.0876427 | 0.475744 | 5.23943 |
 
 ## Fill Statistics
 
 | fill_count | fill_volume_eth | bid_fills | ask_fills | mean_fill_size | median_fill_size | average_fill_notional | average_passive_edge_to_mid |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 85 | 8.54093 | 43 | 42 | 0.100482 | 0.101314 | 215.936 | 0.261176 |
+| 894 | 80.7059 | 440 | 454 | 0.090275 | 0.0980183 | 194.269 | 0.221868 |
+
+## Order Statistics
+
+| placed_orders | cancelled_orders | resized_orders | fill_to_order_ratio | average_quote_lifetime_seconds | pct_orders_cancelled_before_active |
+| --- | --- | --- | --- | --- | --- |
+| 111998 | 111288 | 8342 | 0.00798229 | 4.2974 | 18.8565 |
 
 ## Inventory Statistics
 
 | mean_inventory | mean_abs_inventory | std_inventory | min_inventory | max_inventory | pct_long | pct_short | pct_flat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.0111751 | 0.147011 | 0.190764 | -0.471427 | 0.511231 | 57.5793 | 42.143 | 0.277713 |
+| 0.0307803 | 0.154616 | 0.188228 | -0.475744 | 0.49487 | 54.4781 | 44.9896 | 0.532284 |
 
 ## Realized Spread and Adverse Selection
 
 | horizon_seconds | average_realized_spread | average_toxicity |
 | --- | --- | --- |
-| 1 | -0.413529 | 0.674706 |
-| 5 | -0.413529 | 0.674706 |
-| 30 | -0.231176 | 0.492353 |
+| 1 | -0.368904 | 0.590772 |
+| 5 | -0.363311 | 0.585179 |
+| 30 | -0.263311 | 0.485179 |
+
+## Maker Fee Sensitivity
+
+| maker_fee_bps | estimated_fees | estimated_total_pnl | estimated_pnl_per_turnover |
+| --- | --- | --- | --- |
+| 0 | 0 | -30.361 | -0.000174813 |
+| 1 | 17.3676 | -47.7286 | -0.000274813 |
+| 2 | 34.7353 | -65.0963 | -0.000374813 |
 
 ## Conclusion
 
-The run finished with total PnL `-10.1749` USD, realized trading PnL `-9.8267` USD, unrealized trading PnL `-0.6236` USD, and funding PnL `0.2753` USD. The strategy generated `85` fills and max drawdown `22.4381` USD under the selected fill model. Realized trading PnL is not positive, so adverse selection and quote placement need further work before calling the strategy profitable.
+The run finished with total PnL `-30.3610` USD, realized trading PnL `-30.6956` USD, unrealized trading PnL `0.0000` USD, and funding PnL `0.3346` USD. The strategy generated `894` fills and max drawdown `35.5881` USD under the selected fill model. Realized trading PnL is not positive, so adverse selection and quote placement need further work before calling the strategy profitable.
 
 
 ## Output Files
 
 - `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`
 - `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`
-- `fill_stats.csv`, `inventory_stats.csv`, `realized_spread.csv`
+- `fill_stats.csv`, `order_stats.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`
+- `config_used.yaml`
 - `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`
 
 ## Interpretation Discipline
 
-Use the PnL decomposition rather than total PnL alone. Positive realized trading PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory.
+Use the PnL decomposition rather than total PnL alone. Positive realized trading PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.

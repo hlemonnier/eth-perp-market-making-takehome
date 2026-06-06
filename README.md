@@ -69,7 +69,7 @@ Audit plus baseline backtest:
 mm-backtest run --output-dir reports/baseline
 ```
 
-Run optimistic simple-fill sensitivity:
+Run aggressive simple-fill sensitivity:
 
 ```bash
 mm-backtest run --fill-model simple --output-dir reports/simple_fill
@@ -81,7 +81,8 @@ The runner writes:
 
 - `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`
 - `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`
-- `fill_stats.csv`, `inventory_stats.csv`, `realized_spread.csv`
+- `fill_stats.csv`, `order_stats.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`
+- `config_used.yaml`
 - `final_report.md`
 - plots under `plots/`
 
@@ -91,4 +92,4 @@ The runner writes:
 pytest
 ```
 
-The tests cover the toy examples from the blueprint: long/short PnL accounting, fees, funding, simple fills, conservative queue fills, same-timestamp no-fill ordering, inventory clipping, daily aggregation, no-lookahead feature state, and invalid crossed books.
+The tests cover the toy examples from the blueprint plus the review-critical regressions: long/short PnL accounting, fees, funding, simple fills, conservative queue fills, same-timestamp no-fill ordering, cancellation timestamps, inventory clipping, reduce-only no-flip behavior, tick rounding, daily PnL decomposition, report fill-model text, and audit validation.

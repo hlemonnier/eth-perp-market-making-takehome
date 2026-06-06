@@ -1,7 +1,10 @@
+from dataclasses import replace
+
 import pandas as pd
 
 from market_maker.config import AuditConfig, BacktestConfig, DataConfig, ExecutionConfig, RiskConfig, StrategyConfig
 from market_maker.data_loader import MarketData
+from market_maker.orders import LiveOrder, Side
 from market_maker.simulator import Simulator
 
 
@@ -83,3 +86,57 @@ def test_same_timestamp_trade_cannot_fill_new_quote():
     )
     result = Simulator(data, config(latency_ms=0), tick_size=1.0).run()
     assert result.fills.empty
+
+
+def test_cancel_records_event_timestamp_not_stale_book_timestamp():
+    book_time = pd.Timestamp("2026-03-19T00:00:00Z")
+    cancel_time = pd.Timestamp("2026-03-19T00:00:01Z")
+    data = MarketData(
+        orderbook=pd.DataFrame([book_row(str(book_time))]),
+        trades=pd.DataFrame(columns=["datetime", "price", "size", "is_maker_ask"]),
+        fundings=pd.DataFrame([{"datetime": book_time, "funding_rate": 0.0}]),
+    )
+    simulator = Simulator(data, config(latency_ms=0), tick_size=1.0)
+    assert simulator.book.update_from_row(pd.Series(book_row(str(book_time))))
+    simulator.active_orders[Side.BID] = LiveOrder(
+        order_id=1,
+        side=Side.BID,
+        price=99.0,
+        original_quantity=1.0,
+        remaining_quantity=1.0,
+        created_time=book_time,
+        active_time=book_time,
+        queue_ahead=10.0,
+    )
+
+    simulator._cancel_all("refresh", cancel_time)
+
+    assert simulator.order_rows[0]["timestamp"] == cancel_time
+
+
+def test_trade_triggered_refresh_cancels_at_trade_timestamp_not_stale_book_timestamp():
+    t0 = "2026-03-19T00:00:00Z"
+    t1 = "2026-03-19T00:00:01Z"
+    data = MarketData(
+        orderbook=pd.DataFrame([book_row(t0)]),
+        trades=pd.DataFrame(
+            [
+                {
+                    "datetime": pd.Timestamp(t1),
+                    "price": 99.0,
+                    "size": 1.0,
+                    "is_maker_ask": 0,
+                }
+            ]
+        ),
+        fundings=pd.DataFrame([{"datetime": pd.Timestamp(t0), "funding_rate": 0.0}]),
+    )
+    cfg = config(latency_ms=0)
+    cfg = replace(cfg, strategy=replace(cfg.strategy, theta_inv=1.0, requote_delta_ticks=0))
+
+    result = Simulator(data, cfg, tick_size=1.0).run()
+    cancelled = result.orders[result.orders["event"] == "cancelled"]
+
+    assert not cancelled.empty
+    assert pd.Timestamp(t1) in set(cancelled["timestamp"])
+    assert pd.Timestamp(t0) not in set(cancelled["timestamp"])
