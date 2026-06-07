@@ -3,7 +3,7 @@ from dataclasses import replace
 import pandas as pd
 
 from market_maker.config import AuditConfig, BacktestConfig, DataConfig, ExecutionConfig, RiskConfig, StrategyConfig
-from market_maker.data_loader import MarketData
+from market_maker.data_loader import MarketData, load_market_data
 from market_maker.orders import LiveOrder, Side
 from market_maker.simulator import Simulator
 
@@ -66,6 +66,29 @@ def book_row(timestamp: str) -> dict[str, object]:
         row[f"bid_qty_{level}"] = 10.0
         row[f"ask_qty_{level}"] = 10.0
     return row
+
+
+def test_loader_preserves_file_order_for_same_timestamp_trades(tmp_path):
+    day = "2026-03-19"
+    data_dir = tmp_path / "data"
+    (data_dir / "orderbook").mkdir(parents=True)
+    (data_dir / "trades").mkdir()
+    (data_dir / "fundings").mkdir()
+    pd.DataFrame([book_row(f"{day}T00:00:00Z")]).to_parquet(data_dir / "orderbook" / f"{day}.parquet")
+    pd.DataFrame(
+        [
+            {"datetime": pd.Timestamp(f"{day}T00:00:01Z"), "price": 101.0, "size": 1.0, "is_maker_ask": 1},
+            {"datetime": pd.Timestamp(f"{day}T00:00:00Z"), "price": 99.0, "size": 2.0, "is_maker_ask": 0},
+            {"datetime": pd.Timestamp(f"{day}T00:00:00Z"), "price": 98.5, "size": 3.0, "is_maker_ask": 0},
+        ]
+    ).to_parquet(data_dir / "trades" / f"{day}.parquet")
+    pd.DataFrame([{"datetime": pd.Timestamp(f"{day}T00:00:00Z"), "funding_rate": 0.0}]).to_parquet(data_dir / "fundings" / f"{day}.parquet")
+
+    loaded = load_market_data(data_dir, [day])
+    same_time = loaded.trades[loaded.trades["datetime"] == pd.Timestamp(f"{day}T00:00:00Z", tz="UTC")]
+
+    assert same_time["_row_id"].tolist() == [1, 2]
+    assert same_time["size"].tolist() == [2.0, 3.0]
 
 
 def test_same_timestamp_trade_cannot_fill_new_quote():

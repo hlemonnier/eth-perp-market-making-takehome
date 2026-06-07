@@ -94,4 +94,4 @@ The runner writes:
 pytest
 ```
 
-The tests cover the toy examples from the blueprint plus the review-critical regressions: long/short PnL accounting, fees, funding, simple fills, conservative queue fills, same-timestamp no-fill ordering, cancellation timestamps, max quote age enforcement, immediate kill-switch cancellation, inventory clipping, reduce-only no-flip behavior, tick rounding, daily PnL decomposition, event-level realized-spread marks, report fill-model text, and audit validation/fail-fast behavior.
+The tests cover the toy examples from the blueprint plus the review-critical regressions: long/short PnL accounting, fees, funding, simple fills, conservative queue fills, same-timestamp stable loader ordering, same-timestamp no-fill ordering, cancellation timestamps, max quote age enforcement, immediate kill-switch cancellation, inventory clipping, reduce-only no-flip behavior, tick rounding, daily PnL decomposition, event-level realized-spread marks, report fill-model text, and audit validation/fail-fast behavior.

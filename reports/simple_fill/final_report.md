@@ -13,7 +13,7 @@ This is a simulator-validation baseline, not evidence of a proven profitable mar
 - Funding accrual uses latest known funding over `8.0` hour periods; positive funding is assumed to mean longs pay shorts.
 - Inferred tick size: `0.1`.
 - End inventory is marked to mid for baseline PnL and to bid/ask for liquidation-adjusted sensitivity.
-- Git commit: `3ef9a11`.
+- Git commit: `dfdce31`.
 
 ## Audit Summary
 
@@ -161,6 +161,12 @@ Realized-spread horizons use event-level book marks computed during the simulati
 | 0 | 0 | -44.4011 | -0.000248595 |
 | 1 | 17.8608 | -62.262 | -0.000348595 |
 | 2 | 35.7217 | -80.1228 | -0.000448595 |
+
+## Known Limitations
+
+- The implemented strategy is simple and not proven profitable; use the run as simulator validation and diagnostics, not as evidence of robust market-making edge.
+- The conservative queue model likely underfills because L2 snapshots and prints do not reveal cancellations ahead of our simulated order.
+- The simple fill model is intentionally aggressive and stress-tests adverse selection; it is not a better-performance upper bound.
 
 ## Conclusion
 
