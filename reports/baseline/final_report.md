@@ -13,7 +13,7 @@ This is a simulator-validation baseline, not evidence of a proven profitable mar
 - Funding accrual uses latest known funding over `8.0` hour periods; positive funding is assumed to mean longs pay shorts.
 - Inferred tick size: `0.1`.
 - End inventory is marked to mid for baseline PnL and to bid/ask for liquidation-adjusted sensitivity.
-- Git commit: `dfdce31`.
+- Git commit: `cdff6a3`.
 
 ## Audit Summary
 
@@ -85,64 +85,64 @@ This is a simulator-validation baseline, not evidence of a proven profitable mar
 
 ## Strategy
 
-Fair value combines mid, microprice, and past-only trade imbalance. Quotes use adaptive half-distance, inventory-skewed reservation price, funding target inventory, adverse-pressure side stops, volatility cooldown, and end-of-day reduce-only behavior.
+Fair value combines mid, microprice, and past-only trade imbalance. Quotes use adaptive half-distance, inventory-skewed reservation price, funding target inventory, book-imbalance adverse-pressure side stops, volatility cooldown, and end-of-day reduce-only behavior.
 
 ## Results
 
-- `total_pnl`: `7.797381707504354`
-- `realized_trading_pnl`: `6.184589911313748`
-- `unrealized_trading_pnl`: `1.4645698761922472`
-- `funding_pnl`: `0.14822191999841758`
+- `total_pnl`: `21.287226203662442`
+- `realized_trading_pnl`: `15.512417174683414`
+- `unrealized_trading_pnl`: `5.7612396928062415`
+- `funding_pnl`: `0.013569336172735695`
 - `fees`: `0.0`
-- `liquidation_adjusted_pnl`: `7.796352494660927`
-- `total_fills`: `23.0`
-- `fill_volume_eth`: `2.475356375586428`
-- `turnover_usd`: `5354.439752457108`
-- `max_inventory`: `0.223103674638366`
-- `min_inventory`: `-0.27068087649981776`
-- `mean_abs_inventory`: `0.09181898257997131`
-- `max_drawdown`: `5.923495162910426`
-- `sampled_1m_max_drawdown`: `5.826189245071417`
-- `sharpe_like_1m`: `0.4256447649701877`
-- `pnl_per_turnover`: `0.0014562460440284534`
-- `pnl_per_eth`: `3.1500036860983722`
+- `liquidation_adjusted_pnl`: `21.282828740994375`
+- `total_fills`: `9.0`
+- `fill_volume_eth`: `0.9867089564171783`
+- `turnover_usd`: `2129.5287550828493`
+- `max_inventory`: `0.15526849727542935`
+- `min_inventory`: `-0.19646804617692137`
+- `mean_abs_inventory`: `0.09329225143830802`
+- `max_drawdown`: `9.66901739988533`
+- `sampled_1m_max_drawdown`: `9.275677579005606`
+- `sharpe_like_1m`: `1.1029730177741857`
+- `pnl_per_turnover`: `0.009996214492456695`
+- `pnl_per_eth`: `21.573966735802337`
 
 ## Daily PnL
 
 | date | starting_equity | ending_equity | daily_pnl | daily_realized_trading_pnl | daily_unrealized_trading_pnl_change | daily_funding_pnl | daily_fees | ending_realized_trading_pnl | ending_unrealized_trading_pnl | ending_funding_pnl | ending_fees | bid_fills | ask_fills | bid_volume_eth | ask_volume_eth | average_inventory | max_abs_inventory | max_drawdown |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-03-19 | 0 | 3.44858 | 3.44858 | 2.00095 | 1.43534 | 0.0122898 | 0 | 2.00095 | 1.43534 | 0.0122898 | 0 | 4 | 5 | 0.430262 | 0.537778 | -0.0016749 | 0.218733 | 4.51081 |
-| 2026-03-20 | 3.44858 | 7.65001 | 4.20143 | 4.04261 | 0.096697 | 0.0621211 | 0 | 6.04356 | 1.53204 | 0.0744108 | 0 | 3 | 4 | 0.33062 | 0.480706 | 0.0383188 | 0.257602 | 5.34392 |
-| 2026-03-21 | 7.65001 | 7.79738 | 0.14737 | 0.141025 | -0.0674663 | 0.0738111 | 0 | 6.18459 | 1.46457 | 0.148222 | 0 | 4 | 3 | 0.466505 | 0.229487 | -0.0525581 | 0.270681 | 3.90214 |
+| 2026-03-19 | 0 | 14.621 | 14.621 | 13.2379 | 1.44584 | -0.0627504 | 0 | 13.2379 | 1.44584 | -0.0627504 | 0 | 2 | 2 | 0.271969 | 0.196468 | -0.0576598 | 0.196468 | 9.27568 |
+| 2026-03-20 | 14.621 | 15.4065 | 0.785498 | 1.18515 | -0.426041 | 0.0263904 | 0 | 14.4231 | 1.0198 | -0.03636 | 0 | 1 | 1 | 0.0797678 | 0.0935383 | 0.0685555 | 0.155268 | 3.4105 |
+| 2026-03-21 | 15.4065 | 21.2872 | 5.88072 | 1.08934 | 4.74144 | 0.0499294 | 0 | 15.5124 | 5.76124 | 0.0135693 | 0 | 1 | 2 | 0.0976433 | 0.247323 | -0.100255 | 0.185593 | 2.38514 |
 
 ## Fill Statistics
 
 | fill_count | fill_volume_eth | bid_fills | ask_fills | mean_fill_size | median_fill_size | average_fill_notional | average_passive_edge_to_mid |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 23 | 2.47536 | 11 | 12 | 0.107624 | 0.114218 | 232.802 | 0.228261 |
+| 9 | 0.986709 | 4 | 5 | 0.109634 | 0.11701 | 236.614 | 0.261111 |
 
 ## Order Statistics
 
 | placed_orders | filled_orders | cancelled_orders | resized_orders | fill_to_order_ratio | filled_order_ratio | cancel_to_order_ratio | top_cancel_reason | top_cancel_reason_count | average_quote_lifetime_seconds | p95_quote_lifetime_seconds | max_quote_lifetime_seconds | cancelled_before_active_orders | pct_orders_cancelled_before_active |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 129881 | 23 | 129858 | 6320 | 0.000177085 | 0.000177085 | 0.999823 | refresh_reprice | 94978 | 3.74072 | 10 | 10 | 20068 | 15.4538 |
+| 102711 | 9 | 102702 | 3687 | 8.76245e-05 | 8.76245e-05 | 0.999912 | refresh_reprice | 56455 | 3.59415 | 10 | 10 | 14926 | 14.5333 |
 
 ### Order Cancellation Reasons
 
 | reason | cancelled_orders | cancelled_before_active_orders |
 | --- | --- | --- |
-| refresh_reprice | 94978 | 19087 |
-| quote_age_expired | 24204 | 0 |
-| quote_crossed_after_book_update | 6067 | 453 |
-| refresh_no_desired_quote | 4419 | 440 |
-| jump_cooldown | 187 | 88 |
+| refresh_reprice | 56455 | 11840 |
+| refresh_no_desired_quote | 26395 | 2831 |
+| quote_age_expired | 16675 | 0 |
+| quote_crossed_after_book_update | 3035 | 186 |
+| jump_cooldown | 139 | 69 |
 | eod_reduce_only | 3 | 0 |
 
 ## Inventory Statistics
 
 | mean_inventory | mean_abs_inventory | std_inventory | min_inventory | max_inventory | pct_long | pct_short | pct_flat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| -0.00531566 | 0.091819 | 0.116581 | -0.270681 | 0.223104 | 47.8361 | 51.9093 | 0.254571 |
+| -0.0298029 | 0.0932923 | 0.102472 | -0.196468 | 0.155268 | 45.2673 | 50.2661 | 4.46656 |
 
 ## Realized Spread and Adverse Selection
 
@@ -150,17 +150,17 @@ Realized-spread horizons use event-level book marks computed during the simulati
 
 | horizon_seconds | mark_source | marks_available | average_realized_spread | average_toxicity | median_mark_lookup_lag_ms | max_mark_lookup_lag_ms |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | event_level_book | 3581577 | -0.0804348 | 0.308696 | 25.5993 | 89.3959 |
-| 5 | event_level_book | 3581577 | -0.236957 | 0.465217 | 38.105 | 226.98 |
-| 30 | event_level_book | 3581577 | -0.515217 | 0.743478 | 36.9117 | 290.068 |
+| 1 | event_level_book | 3581577 | 0.0277778 | 0.233333 | 30.862 | 86.8282 |
+| 5 | event_level_book | 3581577 | -0.105556 | 0.366667 | 59.6345 | 226.98 |
+| 30 | event_level_book | 3581577 | -0.127778 | 0.388889 | 51.0964 | 129.879 |
 
 ## Maker Fee Sensitivity
 
 | maker_fee_bps | estimated_fees | estimated_total_pnl | estimated_pnl_per_turnover |
 | --- | --- | --- | --- |
-| 0 | 0 | 7.79738 | 0.00145625 |
-| 1 | 0.535444 | 7.26194 | 0.00135625 |
-| 2 | 1.07089 | 6.72649 | 0.00125625 |
+| 0 | 0 | 21.2872 | 0.00999621 |
+| 1 | 0.212953 | 21.0743 | 0.00989621 |
+| 2 | 0.425906 | 20.8613 | 0.00979621 |
 
 ## Known Limitations
 
@@ -171,7 +171,7 @@ Realized-spread horizons use event-level book marks computed during the simulati
 
 ## Conclusion
 
-The run finished with total PnL `7.7974` USD, realized trading PnL `6.1846` USD, unrealized trading PnL `1.4646` USD, and funding PnL `0.1482` USD. The strategy generated `23` fills and max drawdown `5.9235` USD under the selected fill model. Realized trading PnL is positive, which is stronger evidence of spread capture than total PnL alone.
+The run finished with total PnL `21.2872` USD, realized trading PnL `15.5124` USD, unrealized trading PnL `5.7612` USD, and funding PnL `0.0136` USD. The strategy generated `9` fills and max drawdown `9.6690` USD under the selected fill model. Realized trading PnL is positive, which is stronger evidence of spread capture than total PnL alone.
 
 
 ## Output Files

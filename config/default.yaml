@@ -27,9 +27,9 @@ strategy:
   quote_horizon_seconds: 5
   k_vol: 1.0
   k_adv: 0.5
-  pressure_stop: 0.85
-  w_book: 0.5
-  w_trade: 0.5
+  pressure_stop: 0.50
+  w_book: 1.0
+  w_trade: 0.0
   refresh_interval_seconds: 5
   max_quote_age_seconds: 10
   requote_bbo_ticks: 1

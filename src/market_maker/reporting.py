@@ -92,7 +92,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "## Strategy",
         "",
-        "Fair value combines mid, microprice, and past-only trade imbalance. Quotes use adaptive half-distance, inventory-skewed reservation price, funding target inventory, adverse-pressure side stops, volatility cooldown, and end-of-day reduce-only behavior.",
+        "Fair value combines mid, microprice, and past-only trade imbalance. Quotes use adaptive half-distance, inventory-skewed reservation price, funding target inventory, book-imbalance adverse-pressure side stops, volatility cooldown, and end-of-day reduce-only behavior.",
         "",
         "## Results",
         "",
