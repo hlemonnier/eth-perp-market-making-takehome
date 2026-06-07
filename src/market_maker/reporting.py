@@ -139,6 +139,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "- The implemented strategy is simple and not proven profitable; use the run as simulator validation and diagnostics, not as evidence of robust market-making edge.",
         "- The conservative queue model likely underfills because L2 snapshots and prints do not reveal cancellations ahead of our simulated order.",
         "- The simple fill model is intentionally aggressive and stress-tests adverse selection; it is not a better-performance upper bound.",
+        "- Order churn remains high relative to fills; fill/order ratios, cancel/order ratios, and cancellation reasons should be read as diagnostics rather than optimized execution policy.",
         "",
         "## Conclusion",
         "",
