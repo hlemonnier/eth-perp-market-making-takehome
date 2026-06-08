@@ -49,7 +49,7 @@ def _load_daily_file(path: Path, required: list[str], label: str, day: str, max_
     if max_rows is not None:
         df = df.head(max_rows)
     validate_columns(df, required, str(path))
-    df = df.copy()
+    df = df.copy(deep=False)
     df["datetime"] = normalize_datetime(df["datetime"])
     df["_source_day"] = day
     df["_row_id"] = np.arange(len(df))
@@ -99,9 +99,12 @@ def load_market_data_sample(
 
 def _sort_market_frame(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
-        return df.reset_index(drop=True)
+        return df
     if df["datetime"].is_monotonic_increasing:
-        return df.reset_index(drop=True)
+        if isinstance(df.index, pd.RangeIndex) and df.index.start == 0 and df.index.step == 1:
+            return df
+        df.index = pd.RangeIndex(len(df))
+        return df
     source_codes = pd.factorize(df["_source_day"], sort=True)[0] if "_source_day" in df.columns else np.zeros(len(df), dtype=int)
     order = np.lexsort(
         (

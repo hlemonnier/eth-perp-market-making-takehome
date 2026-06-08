@@ -243,6 +243,60 @@ def test_forced_flat_pnl_includes_slippage_cost():
     assert simulator._forced_flat_equity() < simulator._liquidation_equity()
 
 
+def test_forced_flat_pnl_charges_configured_closing_fee():
+    timestamp = pd.Timestamp("2026-03-19T00:00:00Z")
+    cfg = config()
+    cfg = BacktestConfig(
+        data=cfg.data,
+        execution=ExecutionConfig(
+            maker_fee_bps=0.0,
+            latency_ms=0,
+            cancel_latency_ms=0,
+            fill_model="simple",
+            funding_period_hours=8.0,
+            report_frequency="1min",
+            force_flat_slippage_bps=0.0,
+            force_flat_fee_bps=10.0,
+        ),
+        strategy=cfg.strategy,
+        risk=cfg.risk,
+        audit=cfg.audit,
+    )
+    simulator = Simulator(market_data([book_row(str(timestamp))]), cfg, tick_size=1.0)
+    assert simulator.book.update_from_row(pd.Series(book_row(str(timestamp))))
+    simulator.account.cash = -99.0
+    simulator.account.inventory = 1.0
+
+    assert simulator._forced_flat_equity() == pytest.approx(-0.099)
+
+
+def test_forced_flat_pnl_charges_fee_with_previous_mark_fallback():
+    timestamp = pd.Timestamp("2026-03-19T00:00:00Z")
+    cfg = config()
+    cfg = BacktestConfig(
+        data=cfg.data,
+        execution=ExecutionConfig(
+            maker_fee_bps=0.0,
+            latency_ms=0,
+            cancel_latency_ms=0,
+            fill_model="simple",
+            funding_period_hours=8.0,
+            report_frequency="1min",
+            force_flat_slippage_bps=0.0,
+            force_flat_fee_bps=10.0,
+        ),
+        strategy=cfg.strategy,
+        risk=cfg.risk,
+        audit=cfg.audit,
+    )
+    simulator = Simulator(market_data([book_row(str(timestamp))]), cfg, tick_size=1.0)
+    simulator.previous_mark = 100.0
+    simulator.account.cash = -99.0
+    simulator.account.inventory = 1.0
+
+    assert simulator._forced_flat_equity() == pytest.approx(0.9)
+
+
 def test_robustness_command_writes_grid_and_pivot(monkeypatch, tmp_path):
     cfg = config(fill_model="partial_queue", queue_depletion_fraction=0.5)
     data = market_data([book_row("2026-03-19T00:00:00Z")], [])
@@ -279,6 +333,22 @@ def test_robustness_command_writes_grid_and_pivot(monkeypatch, tmp_path):
 
     assert (tmp_path / "grid_results.csv").exists()
     assert (tmp_path / "pnl_by_queue_depletion_cancel_latency.csv").exists()
+
+
+def test_full_core_robustness_variants_match_review_contract():
+    variants = [name for name, _ in cli._full_core_robustness_variants(config())]
+
+    assert variants == [
+        "baseline",
+        "simple_fill",
+        "partial_queue_0.25",
+        "partial_queue_0.50",
+        "cancel_latency_0",
+        "cancel_latency_500",
+        "pressure_filter_off",
+        "fee_0bps",
+        "fee_1bps",
+    ]
 
 
 def test_partial_queue_depletion_starts_after_order_active_time():

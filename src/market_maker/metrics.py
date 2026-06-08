@@ -96,7 +96,12 @@ def daily_summary(
     return pd.DataFrame(rows)
 
 
-def realized_spread_stats(fills: pd.DataFrame, equity_curve: pd.DataFrame, mark_curve: pd.DataFrame | None = None) -> pd.DataFrame:
+def realized_spread_stats(
+    fills: pd.DataFrame,
+    equity_curve: pd.DataFrame,
+    mark_curve: pd.DataFrame | None = None,
+    max_mark_lag_ms: float | None = 1000.0,
+) -> pd.DataFrame:
     if fills.empty:
         return pd.DataFrame()
     mark_source = "event_level_book"
@@ -122,6 +127,9 @@ def realized_spread_stats(fills: pd.DataFrame, equity_curve: pd.DataFrame, mark_
         if aligned.empty:
             continue
         aligned = aligned.dropna(subset=["mid", "mid_at_fill"])
+        if max_mark_lag_ms is not None and max_mark_lag_ms > 0 and not aligned.empty:
+            lookup_lag_ms = (aligned["mark_timestamp"] - aligned["lookup_time"]).dt.total_seconds() * 1000.0
+            aligned = aligned[lookup_lag_ms <= max_mark_lag_ms]
         if aligned.empty:
             continue
         sell = aligned["side"] == "ask"
@@ -137,6 +145,7 @@ def realized_spread_stats(fills: pd.DataFrame, equity_curve: pd.DataFrame, mark_
                 "average_toxicity": float(np.nanmean(toxicity)),
                 "median_mark_lookup_lag_ms": float(lookup_lag_ms.median()) if not lookup_lag_ms.empty else 0.0,
                 "max_mark_lookup_lag_ms": float(lookup_lag_ms.max()) if not lookup_lag_ms.empty else 0.0,
+                "max_allowed_mark_lookup_lag_ms": max_mark_lag_ms,
             }
         )
     return pd.DataFrame(rows)
@@ -151,6 +160,7 @@ def summarize_metrics(
     mark_curve: pd.DataFrame | None = None,
     event_daily_drawdown: dict[str, float] | None = None,
     final_forced_flat_equity: float | None = None,
+    max_mark_lag_ms: float | None = None,
 ) -> MetricsBundle:
     if equity_curve.empty:
         empty = pd.DataFrame()
@@ -251,7 +261,7 @@ def summarize_metrics(
         fill_stats=fill_stats,
         order_stats=order_stats,
         inventory_stats=inventory_stats,
-        realized_spread=realized_spread_stats(fills, equity_curve, mark_curve),
+        realized_spread=realized_spread_stats(fills, equity_curve, mark_curve, max_mark_lag_ms=max_mark_lag_ms),
         order_cancel_reasons=order_cancel_reasons,
     )
 

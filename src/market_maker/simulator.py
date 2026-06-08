@@ -29,10 +29,13 @@ class BacktestResult:
 
 
 class Simulator:
-    def __init__(self, data: MarketData, config: BacktestConfig, tick_size: float):
+    def __init__(self, data: MarketData, config: BacktestConfig, tick_size: float, same_timestamp_policy: str = "trade_before_book"):
+        if same_timestamp_policy not in {"trade_before_book", "book_before_trade"}:
+            raise ValueError(f"Unsupported same-timestamp policy: {same_timestamp_policy}")
         self.data = data
         self.config = config
         self.tick_size = tick_size
+        self.same_timestamp_policy = same_timestamp_policy
         self.account = AccountingState(maker_fee_bps=config.execution.maker_fee_bps)
         self.book = BookState()
         self.features = RollingFeatures(mid_window_seconds=config.strategy.vol_window_seconds)
@@ -85,24 +88,12 @@ class Simulator:
             self._enforce_reduce_only_orders(timestamp)
             self._enforce_stale_book_guard(timestamp)
 
-            while trade_i < arrays.trade_count and arrays.trade_times[trade_i] == next_ns:
-                self._process_trade_values(
-                    timestamp,
-                    price=float(arrays.trade_prices[trade_i]),
-                    size=float(arrays.trade_sizes[trade_i]),
-                    is_maker_ask=int(arrays.trade_is_maker_ask[trade_i]),
-                )
-                trade_i += 1
-
-            while book_i < arrays.book_count and arrays.book_times[book_i] == next_ns:
-                self._process_orderbook_values(
-                    timestamp,
-                    arrays.bid_prices[book_i],
-                    arrays.bid_quantities[book_i],
-                    arrays.ask_prices[book_i],
-                    arrays.ask_quantities[book_i],
-                )
-                book_i += 1
+            if self.same_timestamp_policy == "book_before_trade":
+                book_i = self._process_book_batch(arrays, book_i, next_ns, timestamp)
+                trade_i = self._process_trade_batch(arrays, trade_i, next_ns, timestamp)
+            else:
+                trade_i = self._process_trade_batch(arrays, trade_i, next_ns, timestamp)
+                book_i = self._process_book_batch(arrays, book_i, next_ns, timestamp)
 
             while funding_i < arrays.funding_count and arrays.funding_times[funding_i] == next_ns:
                 self.latest_funding_rate = float(arrays.funding_rates[funding_i])
@@ -138,8 +129,32 @@ class Simulator:
             mark_curve,
             self.daily_max_drawdown_loss,
             forced_flat_equity,
+            self.stale_book_max_age_ms,
         )
         return BacktestResult(equity_curve, fills, orders, metrics, liquidation_equity, mark_curve, forced_flat_equity)
+
+    def _process_trade_batch(self, arrays: "_PreparedArrays", trade_i: int, next_ns: int, timestamp: pd.Timestamp) -> int:
+        while trade_i < arrays.trade_count and arrays.trade_times[trade_i] == next_ns:
+            self._process_trade_values(
+                timestamp,
+                price=float(arrays.trade_prices[trade_i]),
+                size=float(arrays.trade_sizes[trade_i]),
+                is_maker_ask=int(arrays.trade_is_maker_ask[trade_i]),
+            )
+            trade_i += 1
+        return trade_i
+
+    def _process_book_batch(self, arrays: "_PreparedArrays", book_i: int, next_ns: int, timestamp: pd.Timestamp) -> int:
+        while book_i < arrays.book_count and arrays.book_times[book_i] == next_ns:
+            self._process_orderbook_values(
+                timestamp,
+                arrays.bid_prices[book_i],
+                arrays.bid_quantities[book_i],
+                arrays.ask_prices[book_i],
+                arrays.ask_quantities[book_i],
+            )
+            book_i += 1
+        return book_i
 
     def _accrue_funding(self, timestamp: pd.Timestamp) -> None:
         if self.previous_timestamp is None or self.previous_mark is None:
@@ -807,6 +822,10 @@ class Simulator:
 
     def _forced_flat_equity(self) -> float:
         slippage_rate = max(0.0, self.config.execution.force_flat_slippage_bps) / 10_000.0
+        fee_bps = self.config.execution.force_flat_fee_bps
+        if fee_bps is None:
+            fee_bps = self.config.execution.maker_fee_bps
+        fee_rate = max(0.0, fee_bps) / 10_000.0
         if self.book.valid:
             if self.account.inventory > 0:
                 flatten_price = self.book.best_bid * (1.0 - slippage_rate)
@@ -815,11 +834,21 @@ class Simulator:
                 flatten_price = self.book.best_ask * (1.0 + slippage_rate)
                 inventory_value = self.account.inventory * flatten_price
             else:
+                flatten_price = 0.0
                 inventory_value = 0.0
-            return self.account.cash + inventory_value + self.account.funding_pnl - self.account.fees_paid
+            closing_fee = abs(self.account.inventory * flatten_price) * fee_rate
+            return self.account.cash + inventory_value + self.account.funding_pnl - self.account.fees_paid - closing_fee
         if self.previous_mark is None:
             return self.account.cash + self.account.funding_pnl - self.account.fees_paid
-        return self.account.equity(self.previous_mark)
+        if self.account.inventory > 0:
+            flatten_price = self.previous_mark * (1.0 - slippage_rate)
+        elif self.account.inventory < 0:
+            flatten_price = self.previous_mark * (1.0 + slippage_rate)
+        else:
+            flatten_price = 0.0
+        inventory_value = self.account.inventory * flatten_price
+        closing_fee = abs(self.account.inventory * flatten_price) * fee_rate
+        return self.account.cash + inventory_value + self.account.funding_pnl - self.account.fees_paid - closing_fee
 
     @staticmethod
     def _day_end(timestamp: pd.Timestamp) -> pd.Timestamp:

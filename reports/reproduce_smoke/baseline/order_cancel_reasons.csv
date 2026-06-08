@@ -1,7 +1,0 @@
-reason,cancelled_orders,cancelled_before_active_orders
-refresh_reprice,455,0
-pressure_stop_bid,355,0
-pressure_stop_ask,249,0
-expected_edge_ask,214,0
-expected_edge_bid,63,0
-quote_age_expired,52,0

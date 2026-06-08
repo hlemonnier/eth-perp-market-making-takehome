@@ -1,0 +1,38 @@
+check,severity,value,detail
+orderbook_schema,ok,0.0,missing=[]
+trades_schema,ok,0.0,missing=[]
+fundings_schema,ok,0.0,missing=[]
+orderbook_timestamp_order,ok,0.0,negative timestamp diffs
+orderbook_missing_values,ok,0.0,null cells
+orderbook_duplicate_rows,ok,0.0,targeted duplicate rows excluding loader metadata
+orderbook_duplicate_timestamps,ok,0.0,duplicate timestamps; pct=0.0000
+trades_timestamp_order,ok,0.0,negative timestamp diffs
+trades_missing_values,ok,0.0,null cells
+trades_duplicate_rows,ok,0.0,targeted duplicate rows excluding loader metadata
+trades_duplicate_timestamps,warn,21530.0,duplicate timestamps; pct=30.5148
+fundings_timestamp_order,ok,0.0,negative timestamp diffs
+fundings_missing_values,ok,0.0,null cells
+fundings_duplicate_rows,ok,0.0,targeted duplicate rows excluding loader metadata
+fundings_duplicate_timestamps,ok,0.0,duplicate timestamps; pct=0.0000
+orderbook_bid_monotonicity,ok,0.0,rows with increasing bid levels
+orderbook_ask_monotonicity,ok,0.0,rows with decreasing ask levels
+orderbook_negative_quantities,ok,0.0,rows with negative qty
+orderbook_locked_or_crossed,ok,0.0,rows with bid >= ask
+tick_inference,ok,0.1,modal positive price increment
+spread_distribution,ok,0.09999999999990905,"stats={'tick_size': 0.1, 'spread_min': 0.09999999999990905, 'spread_p05': 0.09999999999990905, 'spread_p50': 0.09999999999990905, 'spread_p95': 0.1000000000003638, 'spread_p99': 0.1000000000003638, 'spread_max': 2.700000000000273, 'spread_ticks_p50': 0.9999999999990905, 'one_tick_or_less_pct': 80.49914883862611}"
+one_tick_spread_share,warn,80.49914883862611,share of books with spread <= one inferred tick; high values leave little edge after fees/queue
+mid_jump_outliers,warn,48.00000000000182,"mid jump ticks p99=2.0000, max=48.0000"
+depth_distribution,ok,33.402,"stats={'bid_depth_1_p50': 33.402, 'ask_depth_1_p50': 32.717, 'bid_depth_5_p50': 147.01999999999998, 'ask_depth_5_p50': 150.068, 'bid_depth_10_p50': 257.80499999999995, 'ask_depth_10_p50': 282.256, 'bid_depth_20_p50': 721.3970000000002, 'ask_depth_20_p50': 704.3689999999999}"
+trade_price_size_finite,ok,0.0,non-finite trade price or size
+trade_side_values,ok,0.0,"is_maker_ask values outside {0,1}"
+trade_positive_size,ok,0.0,trade rows with size <= 0
+trade_book_same_timestamp_share,warn,13.963376608651284,trades sharing exact timestamps with book updates; default simulator policy processes equal-time trades before books
+trade_book_alignment,warn,579.0,trades not near matching side of BBO
+trade_price_outside_visible_l2,ok,0.0,trades outside visible L2 price range after backward book alignment
+trade_book_alignment_age_ms,warn,33439.860910999996,"backward book alignment age stats={'p50_ms': 27.204994, 'p95_ms': 87.6368175, 'max_ms': 33439.860910999996}"
+funding_rate_finite,ok,0.0,non-finite funding rates
+funding_rate_outliers,ok,0.000539783101477101,"absolute funding p99=0.00023601, max=0.00053978"
+funding_gaps,ok,40.0,gaps over threshold=0
+day_boundary_2026-03-19,ok,0.0,rows outside source date
+day_boundary_2026-03-20,ok,0.0,rows outside source date
+day_boundary_2026-03-21,ok,0.0,rows outside source date

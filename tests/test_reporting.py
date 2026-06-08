@@ -28,6 +28,24 @@ def result_with_overall(overall: pd.DataFrame) -> BacktestResult:
     )
 
 
+def result_with_metrics(overall: pd.DataFrame, realized_spread: pd.DataFrame) -> BacktestResult:
+    metrics = MetricsBundle(
+        overall=overall,
+        daily=pd.DataFrame(),
+        fill_stats=pd.DataFrame(),
+        order_stats=pd.DataFrame(),
+        inventory_stats=pd.DataFrame(),
+        realized_spread=realized_spread,
+    )
+    return BacktestResult(
+        equity_curve=pd.DataFrame(),
+        fills=pd.DataFrame(),
+        orders=pd.DataFrame(),
+        metrics=metrics,
+        final_liquidation_adjusted_equity=0.0,
+    )
+
+
 def audit_result() -> AuditResult:
     return AuditResult(
         tick_size=0.1,
@@ -65,3 +83,32 @@ def test_fee_sensitivity_estimates_fee_drag_from_turnover():
     assert one_bp["estimated_fees"] == pytest.approx(1.0)
     assert one_bp["estimated_total_pnl"] == pytest.approx(9.0)
     assert half_bp["estimated_total_pnl"] == pytest.approx(9.5)
+
+
+def test_report_does_not_call_positive_roundtrip_pnl_clean_spread_capture():
+    config = load_config("config/default.yaml")
+    overall = pd.DataFrame(
+        [
+            {
+                "total_pnl": 13.0,
+                "forced_flat_pnl": 12.5,
+                "realized_trading_pnl": 10.0,
+                "unrealized_trading_pnl": 0.5,
+                "funding_pnl": 0.0,
+                "total_fills": 5,
+                "max_drawdown": 4.0,
+            }
+        ]
+    )
+    realized_spread = pd.DataFrame(
+        [
+            {"horizon_seconds": 1, "average_realized_spread": -0.2},
+            {"horizon_seconds": 5, "average_realized_spread": -0.4},
+        ]
+    )
+
+    report = build_markdown_report(result_with_metrics(overall, realized_spread), audit_result(), config)
+
+    assert "stronger evidence of spread capture" not in report
+    assert "Fill count is sparse" in report
+    assert "do not interpret this as clean spread capture" in report

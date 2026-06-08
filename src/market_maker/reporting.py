@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import os
 from pathlib import Path
-import subprocess
 
 import pandas as pd
 import yaml
@@ -34,8 +34,9 @@ def write_outputs(
     result.metrics.inventory_stats.to_csv(output / "inventory_stats.csv", index=False)
     result.metrics.realized_spread.to_csv(output / "realized_spread.csv", index=False)
     _fill_diagnostic_breakdowns(result.fills).to_csv(output / "fill_diagnostics.csv", index=False)
+    _round_trip_diagnostics(result.fills).to_csv(output / "round_trips.csv", index=False)
     _fee_sensitivity(overall=result.metrics.overall).to_csv(output / "fee_sensitivity.csv", index=False)
-    pd.DataFrame([audit.event_ordering_stats]).to_csv(output / "event_ordering_sensitivity.csv", index=False)
+    pd.DataFrame([audit.event_ordering_stats]).to_csv(output / "event_ordering_exposure.csv", index=False)
     _write_config_snapshot(config, output)
 
     _plot_equity(result.equity_curve, plots / "equity_curve.png")
@@ -50,9 +51,10 @@ def write_outputs(
 
 def build_markdown_report(result: BacktestResult, audit: AuditResult, config: BacktestConfig) -> str:
     overall = result.metrics.overall.iloc[0].to_dict() if not result.metrics.overall.empty else {}
-    interpretation = _interpretation(overall)
-    git_commit = _git_commit()
+    interpretation = _interpretation(overall, result.metrics.realized_spread, result.metrics.fill_stats, result.metrics.inventory_stats)
+    report_provenance = _report_provenance()
     audit_issue_rows = audit.summary.loc[audit.summary["severity"] != "ok"].copy()
+    round_trips = _round_trip_diagnostics(result.fills)
     lines = [
         "# ETH Perpetual Market-Making Backtest",
         "",
@@ -71,8 +73,10 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         f"- Cancel latency assumption: `{config.execution.cancel_latency_ms if config.execution.cancel_latency_ms is not None else config.execution.latency_ms}` ms.",
         f"- Queue depletion fraction: `{config.execution.queue_depletion_fraction}`.",
         f"- Forced-flat slippage: `{config.execution.force_flat_slippage_bps}` bps.",
-        "- End inventory is reported three ways: mid-marked total PnL, bid/ask liquidation-adjusted PnL, and forced-flat PnL after configured slippage.",
-        f"- Git commit: `{git_commit}`.",
+        f"- Forced-flat closing fee: `{config.execution.force_flat_fee_bps if config.execution.force_flat_fee_bps is not None else config.execution.maker_fee_bps}` bps.",
+        "- Equal-timestamp policy: `trade_before_book` by default; reproduction outputs include an alternate `book_before_trade` policy check.",
+        "- End inventory is reported three ways: mid-marked total PnL, bid/ask liquidation-adjusted PnL, and forced-flat PnL after configured slippage and closing fee.",
+        f"- Report provenance: `{report_provenance}`.",
         "",
         "## Audit Summary",
         "",
@@ -87,9 +91,9 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         _markdown_table(audit_issue_rows, max_rows=100),
         "",
-        "### Event Ordering Sensitivity",
+        "### Event Ordering Exposure",
         "",
-        "The simulator processes trades before book updates when timestamps are exactly equal. This table quantifies how much data is exposed to the alternate book-before-trade convention.",
+        "The default simulator policy processes trades before book updates when timestamps are exactly equal. Audit output quantifies exposure to the alternate book-before-trade convention; reproduce workflows also write `event_ordering_sensitivity.csv` with actual default-vs-alternate backtests.",
         "",
         _markdown_table(pd.DataFrame([audit.event_ordering_stats])),
         "",
@@ -118,6 +122,12 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "## Daily PnL",
         "",
         _markdown_table(result.metrics.daily),
+        "",
+        "## Round-Trip And Holding-Time Diagnostics",
+        "",
+        "Rows pair fills greedily when inventory is reduced by an opposite-side fill. Long holding periods indicate inventory-path PnL rather than clean high-frequency spread economics.",
+        "",
+        _markdown_table(round_trips, max_rows=20),
         "",
         "## Fill Statistics",
         "",
@@ -153,8 +163,9 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "- The implemented strategy is simple and not proven profitable; use the run as simulator validation and diagnostics, not as evidence of robust market-making edge.",
         "- The conservative queue model likely underfills because L2 snapshots and prints do not reveal cancellations ahead of our simulated order; use `partial_queue`/`calibrated_queue` queue-depletion sweeps as robustness checks.",
-        "- The simple fill model is intentionally aggressive and stress-tests adverse selection; it is not a better-performance upper bound.",
+        "- The simple fill model is intentionally aggressive and stress-tests adverse selection and inventory-directional risk; positive simple-fill PnL is not alpha evidence when it comes from carrying directional inventory.",
         "- Order churn remains high relative to fills; fill/order ratios, cancel/order ratios, and cancellation reasons should be read as diagnostics rather than optimized execution policy.",
+        "- The included dataset covers only three days, so fill counts, drawdown, and PnL are not statistically reliable strategy-performance estimates.",
         "",
         "## Conclusion",
         "",
@@ -165,13 +176,14 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "- `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`",
         "- `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`",
-        "- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`, `event_ordering_sensitivity.csv`",
+        "- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`",
+        "- Reproduction suite roots also include `fill_model_comparison.csv`, `event_ordering_sensitivity.csv`, and `run_scope.csv`.",
         "- `config_used.yaml`",
         "- `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`",
         "",
         "## Interpretation Discipline",
         "",
-        "Use the PnL decomposition rather than total PnL alone. Positive forced-flat PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory. Overall and daily max drawdown are event-level diagnostics; sampled 1-minute drawdown remains in the tables for comparison. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.",
+        "Use the PnL decomposition rather than total PnL alone. Positive round-trip PnL with negative short-horizon realized spreads should be read as inventory-path PnL, not clean spread economics. Overall and daily max drawdown are event-level diagnostics; sampled 1-minute drawdown remains in the tables for comparison. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -179,7 +191,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
 def _write_config_snapshot(config: BacktestConfig, output: Path) -> None:
     raw = asdict(config)
     raw["data"]["data_dir"] = str(raw["data"]["data_dir"])
-    raw["git_commit"] = _git_commit()
+    raw["report_provenance"] = _report_provenance()
     (output / "config_used.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
 
 
@@ -274,6 +286,67 @@ def _fill_diagnostic_breakdowns(fills: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
+def _round_trip_diagnostics(fills: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "entry_time",
+        "exit_time",
+        "entry_side",
+        "exit_side",
+        "quantity",
+        "entry_price",
+        "exit_price",
+        "holding_seconds",
+        "roundtrip_pnl",
+        "exit_order_status",
+    ]
+    if fills.empty or not {"timestamp", "side", "price", "quantity"}.issubset(fills.columns):
+        return pd.DataFrame(columns=columns)
+    lots: list[dict[str, object]] = []
+    rows: list[dict[str, object]] = []
+    for _, fill in fills.sort_values("timestamp").iterrows():
+        side = str(fill["side"])
+        direction = 1 if side == "bid" else -1
+        remaining = float(fill["quantity"])
+        while remaining > 1e-12 and lots and int(lots[0]["direction"]) != direction:
+            lot = lots[0]
+            quantity = min(remaining, float(lot["quantity"]))
+            entry_time = pd.Timestamp(lot["timestamp"])
+            exit_time = pd.Timestamp(fill["timestamp"])
+            entry_price = float(lot["price"])
+            exit_price = float(fill["price"])
+            entry_direction = int(lot["direction"])
+            roundtrip_pnl = (exit_price - entry_price) * quantity if entry_direction > 0 else (entry_price - exit_price) * quantity
+            rows.append(
+                {
+                    "entry_time": entry_time,
+                    "exit_time": exit_time,
+                    "entry_side": lot["side"],
+                    "exit_side": side,
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "holding_seconds": max(0.0, (exit_time - entry_time).total_seconds()),
+                    "roundtrip_pnl": roundtrip_pnl,
+                    "exit_order_status": fill.get("order_status_at_fill", ""),
+                }
+            )
+            remaining -= quantity
+            lot["quantity"] = float(lot["quantity"]) - quantity
+            if float(lot["quantity"]) <= 1e-12:
+                lots.pop(0)
+        if remaining > 1e-12:
+            lots.append(
+                {
+                    "timestamp": fill["timestamp"],
+                    "side": side,
+                    "direction": direction,
+                    "quantity": remaining,
+                    "price": float(fill["price"]),
+                }
+            )
+    return pd.DataFrame(rows, columns=columns)
+
+
 def _numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
     if column not in df.columns:
         return pd.Series(pd.NA, index=df.index)
@@ -289,14 +362,8 @@ def _safe_mean(values: pd.Series | None) -> float:
     return float(numeric.mean())
 
 
-def _git_commit() -> str:
-    try:
-        commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
-        dirty_worktree = subprocess.run(["git", "diff", "--quiet"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0
-        dirty_index = subprocess.run(["git", "diff", "--cached", "--quiet"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0
-        return f"{commit}-dirty" if dirty_worktree or dirty_index else commit
-    except Exception:
-        return "unknown"
+def _report_provenance() -> str:
+    return os.environ.get("MM_REPORT_PROVENANCE") or os.environ.get("REPORT_BUILD_ID", "not embedded")
 
 
 def _markdown_table(df: pd.DataFrame, max_rows: int = 20) -> str:
@@ -324,7 +391,12 @@ def _format_cell(value: object) -> str:
     return str(value)
 
 
-def _interpretation(overall: dict[str, object]) -> str:
+def _interpretation(
+    overall: dict[str, object],
+    realized_spread: pd.DataFrame,
+    fill_stats: pd.DataFrame,
+    inventory_stats: pd.DataFrame,
+) -> str:
     if not overall:
         return "No backtest result was produced."
     total = float(overall.get("total_pnl", 0.0))
@@ -338,13 +410,34 @@ def _interpretation(overall: dict[str, object]) -> str:
         f"The run finished with mid-marked total PnL `{total:.4f}` USD, forced-flat PnL `{forced_flat:.4f}` USD, realized trading PnL `{realized:.4f}` USD, unrealized trading PnL `{unrealized:.4f}` USD, and funding PnL `{funding:.4f}` USD.",
         f"The strategy generated `{fills}` fills and max drawdown `{drawdown:.4f}` USD under the selected fill model.",
     ]
+    if fills <= 10:
+        parts.append("Fill count is sparse and too small to support a statistically meaningful performance claim.")
+    realized_spread_values = pd.Series(dtype=float)
+    if not realized_spread.empty and "average_realized_spread" in realized_spread.columns:
+        realized_spread_values = pd.to_numeric(realized_spread["average_realized_spread"], errors="coerce").dropna()
+    pending_cancel_fills = 0
+    if not fill_stats.empty and "pending_cancel_fills" in fill_stats.columns:
+        pending_cancel_fills = int(float(fill_stats.iloc[0].get("pending_cancel_fills", 0)))
+    pct_short = 0.0
+    if not inventory_stats.empty and "pct_short" in inventory_stats.columns:
+        pct_short = float(inventory_stats.iloc[0].get("pct_short", 0.0))
     if abs(unrealized) > max(abs(realized) * 3.0, 1.0):
         parts.append(
-            "Most reported PnL is mark-to-market inventory PnL rather than realized spread capture, so the result should be treated as a conservative simulator validation, not proof of robust market-making edge."
+            "Most reported PnL is mark-to-market inventory PnL, so the result should be treated as inventory-path exposure inside a simulator validation, not proof of robust market-making edge."
+        )
+    elif realized > 0 and not realized_spread_values.empty and (realized_spread_values < 0).any():
+        parts.append(
+            "Realized round-trip PnL is positive, but short-horizon realized-spread markouts are negative; do not interpret this as clean spread capture."
         )
     elif realized > 0:
-        parts.append("Realized trading PnL is positive, which is stronger evidence of spread capture than total PnL alone.")
-    else:
+        parts.append(
+            "Realized round-trip PnL is positive, but that alone is not clean spread-capture evidence; use the realized-spread markouts, fill count, and inventory path before making any profitability claim."
+        )
+    if pending_cancel_fills:
+        parts.append(f"`{pending_cancel_fills}` fills occurred while cancellation was pending, so cancel-latency adverse selection remains a key diagnostic.")
+    if pct_short > 75.0:
+        parts.append(f"The run is short `{pct_short:.2f}%` of sampled time, so positive PnL may reflect directional inventory exposure.")
+    if realized <= 0:
         parts.append("Realized trading PnL is not positive, so adverse selection and quote placement need further work before calling the strategy profitable.")
     return " ".join(parts)
 

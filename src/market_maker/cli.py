@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 from dataclasses import replace
 from itertools import product
 from pathlib import Path
@@ -16,7 +17,7 @@ from market_maker.simulator import Simulator
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ETH perpetual market-making audit and backtest.")
-    parser.add_argument("command", choices=["audit", "backtest", "run", "robustness", "ablations", "reproduce"], help="Command to execute.")
+    parser.add_argument("command", choices=["audit", "backtest", "run", "robustness", "ablations", "event-ordering", "reproduce"], help="Command to execute.")
     parser.add_argument("--config", default="config/default.yaml", help="Path to YAML config.")
     parser.add_argument("--data-dir", default=None, help="Override data directory.")
     parser.add_argument("--output-dir", default="reports/baseline", help="Output directory.")
@@ -27,8 +28,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--funding-target-frac", type=float, default=None, help="Override funding inventory target strength.")
     parser.add_argument("--pressure-stop", type=float, default=None, help="Override adverse-pressure side stop threshold.")
     parser.add_argument("--min-half-spread-ticks", type=int, default=None, help="Override minimum quote half-spread in ticks.")
-    parser.add_argument("--suite-size", choices=["smoke", "core", "full", "standard"], default="core", help="Robustness/reproduce suite breadth.")
-    parser.add_argument("--smoke-rows", type=int, default=50_000, help="Orderbook rows to load for smoke/core reproducibility suites.")
+    parser.add_argument("--suite-size", choices=["smoke", "core", "full_core", "full", "standard"], default="core", help="Robustness/reproduce suite breadth.")
+    parser.add_argument("--smoke-rows", type=int, default=1_000, help="Orderbook rows to load for smoke reproducibility suites.")
+    parser.add_argument("--sample-rows", type=int, default=50_000, help="Orderbook rows to load for sample/core reproducibility suites.")
     parser.add_argument("--allow-audit-errors", action="store_true", help="Run the backtest even when audit checks fail.")
     return parser.parse_args()
 
@@ -59,10 +61,15 @@ def override_config(config: BacktestConfig, args: argparse.Namespace) -> Backtes
 def run_command(args: argparse.Namespace) -> None:
     config = override_config(load_config(args.config), args)
     suite_size = _normalize_suite_size(getattr(args, "suite_size", "core"))
-    if args.command in {"robustness", "ablations", "reproduce"} and suite_size in {"smoke", "core"}:
-        market_data = load_market_data_sample(config.data.data_dir, config.data.days, max_orderbook_rows=getattr(args, "smoke_rows", 50_000))
+    if args.command in {"robustness", "ablations", "event-ordering", "reproduce"} and suite_size == "smoke":
+        market_data = load_market_data_sample(config.data.data_dir, config.data.days, max_orderbook_rows=getattr(args, "smoke_rows", 1_000))
+        dataset_scope = f"smoke_{getattr(args, 'smoke_rows', 1_000)}_rows"
+    elif args.command in {"robustness", "ablations", "event-ordering", "reproduce"} and suite_size == "core":
+        market_data = load_market_data_sample(config.data.data_dir, config.data.days, max_orderbook_rows=getattr(args, "sample_rows", 50_000))
+        dataset_scope = f"sample_{getattr(args, 'sample_rows', 50_000)}_rows"
     else:
         market_data = load_market_data(config.data.data_dir, config.data.days)
+        dataset_scope = "full_dataset"
     audit = run_audit(market_data, config.audit)
     output_dir = Path(args.output_dir)
     write_audit_outputs(audit, output_dir)
@@ -75,19 +82,25 @@ def run_command(args: argparse.Namespace) -> None:
         raise SystemExit(f"Audit failed; refusing to run backtest. Review {output_dir / 'audit_summary.csv'} or pass --allow-audit-errors.")
 
     if args.command == "robustness":
-        results = run_robustness_suite(config, market_data, audit, output_dir, suite_size=suite_size)
+        results = run_robustness_suite(config, market_data, audit, output_dir, suite_size=suite_size, dataset_scope=dataset_scope)
         print(results.to_string(index=False))
         print(f"Robustness suite complete: output_dir={output_dir}")
         return
 
     if args.command == "ablations":
-        results = run_ablation_suite(config, market_data, audit, output_dir)
+        results = run_ablation_suite(config, market_data, audit, output_dir, dataset_scope=dataset_scope)
         print(results.to_string(index=False))
         print(f"Ablation suite complete: output_dir={output_dir}")
         return
 
+    if args.command == "event-ordering":
+        results = run_event_ordering_sensitivity(config, market_data, audit, output_dir, dataset_scope=dataset_scope)
+        print(results.to_string(index=False))
+        print(f"Event-ordering sensitivity complete: output_dir={output_dir}")
+        return
+
     if args.command == "reproduce":
-        run_reproduce_suite(config, market_data, audit, output_dir, suite_size=suite_size)
+        run_reproduce_suite(config, market_data, audit, output_dir, suite_size=suite_size, dataset_scope=dataset_scope)
         print(f"Reproduce suite complete: output_dir={output_dir}")
         return
 
@@ -121,7 +134,14 @@ def run_single_backtest(config: BacktestConfig, market_data, audit, output_dir: 
     return row
 
 
-def run_robustness_suite(config: BacktestConfig, market_data, audit, output_dir: Path, suite_size: str = "core") -> pd.DataFrame:
+def run_robustness_suite(
+    config: BacktestConfig,
+    market_data,
+    audit,
+    output_dir: Path,
+    suite_size: str = "core",
+    dataset_scope: str = "unknown",
+) -> pd.DataFrame:
     output_dir.mkdir(parents=True, exist_ok=True)
     if suite_size == "smoke":
         variants = [
@@ -132,6 +152,8 @@ def run_robustness_suite(config: BacktestConfig, market_data, audit, output_dir:
         ]
     elif suite_size == "core":
         variants = _core_robustness_variants(config)
+    elif suite_size == "full_core":
+        variants = _full_core_robustness_variants(config)
     else:
         variants = []
         pressure_values = [0.25, 0.50, 0.75]
@@ -169,6 +191,7 @@ def run_robustness_suite(config: BacktestConfig, market_data, audit, output_dir:
             {
                 "run": run_index,
                 "variant": variant,
+                "dataset_scope": dataset_scope,
                 "fill_model": cfg.execution.fill_model,
                 "pressure_stop": cfg.strategy.pressure_stop,
                 "queue_depletion_fraction": cfg.execution.queue_depletion_fraction,
@@ -178,6 +201,9 @@ def run_robustness_suite(config: BacktestConfig, market_data, audit, output_dir:
             }
         )
         rows.append(row)
+        pd.DataFrame(rows).to_csv(output_dir / "grid_results.csv", index=False)
+        del result
+        gc.collect()
     results = pd.DataFrame(rows)
     results.to_csv(output_dir / "grid_results.csv", index=False)
     if not results.empty:
@@ -191,7 +217,7 @@ def run_robustness_suite(config: BacktestConfig, market_data, audit, output_dir:
     return results
 
 
-def run_ablation_suite(config: BacktestConfig, market_data, audit, output_dir: Path) -> pd.DataFrame:
+def run_ablation_suite(config: BacktestConfig, market_data, audit, output_dir: Path, dataset_scope: str = "unknown") -> pd.DataFrame:
     output_dir.mkdir(parents=True, exist_ok=True)
     variants = {
         "full": config,
@@ -208,14 +234,16 @@ def run_ablation_suite(config: BacktestConfig, market_data, audit, output_dir: P
         result = Simulator(market_data, cfg, audit.tick_size).run()
         row = result.metrics.overall.iloc[0].to_dict() if not result.metrics.overall.empty else {}
         row["variant"] = name
+        row["dataset_scope"] = dataset_scope
         rows.append(row)
     results = pd.DataFrame(rows)
     results.to_csv(output_dir / "ablation_results.csv", index=False)
     return results
 
 
-def run_reproduce_suite(config: BacktestConfig, market_data, audit, output_dir: Path, suite_size: str = "core") -> None:
+def run_reproduce_suite(config: BacktestConfig, market_data, audit, output_dir: Path, suite_size: str = "core", dataset_scope: str = "unknown") -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_dataset_scope(market_data, output_dir, suite_size, dataset_scope)
     write_audit_outputs(audit, output_dir / "audit")
     baseline = run_single_backtest(config, market_data, audit, output_dir / "baseline")
     simple_cfg = replace(config, execution=replace(config.execution, fill_model="simple"))
@@ -229,13 +257,67 @@ def run_reproduce_suite(config: BacktestConfig, market_data, audit, output_dir: 
             {"variant": "funding_disabled", **no_funding},
         ]
     )
+    comparison.insert(0, "dataset_scope", dataset_scope)
     comparison.to_csv(output_dir / "fill_model_comparison.csv", index=False)
-    run_sensitivity_suites(config, market_data, audit, output_dir)
-    run_ablation_suite(config, market_data, audit, output_dir / "ablations")
-    run_robustness_suite(config, market_data, audit, output_dir / "robustness", suite_size=suite_size)
+    run_event_ordering_sensitivity(config, market_data, audit, output_dir, dataset_scope=dataset_scope)
+    if suite_size == "smoke":
+        run_robustness_suite(config, market_data, audit, output_dir / "robustness_smoke", suite_size=suite_size, dataset_scope=dataset_scope)
+        return
+    run_sensitivity_suites(config, market_data, audit, output_dir, dataset_scope=dataset_scope)
+    run_ablation_suite(config, market_data, audit, output_dir / "ablations", dataset_scope=dataset_scope)
+    run_robustness_suite(config, market_data, audit, output_dir / "robustness", suite_size=suite_size, dataset_scope=dataset_scope)
 
 
-def run_sensitivity_suites(config: BacktestConfig, market_data, audit, output_dir: Path) -> None:
+def run_event_ordering_sensitivity(
+    config: BacktestConfig,
+    market_data,
+    audit,
+    output_dir: Path,
+    dataset_scope: str = "unknown",
+) -> pd.DataFrame:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for policy in ["trade_before_book", "book_before_trade"]:
+        result = Simulator(market_data, config, audit.tick_size, same_timestamp_policy=policy).run()
+        row = result.metrics.overall.iloc[0].to_dict() if not result.metrics.overall.empty else {}
+        row.update(
+            {
+                "variant": policy,
+                "same_timestamp_policy": policy,
+                "dataset_scope": dataset_scope,
+                "trades_with_same_timestamp_book_pct": audit.event_ordering_stats.get("trades_with_same_timestamp_book_pct", 0.0),
+                "book_updates_with_same_timestamp_trade_pct": audit.event_ordering_stats.get("book_updates_with_same_timestamp_trade_pct", 0.0),
+            }
+        )
+        rows.append(row)
+    results = pd.DataFrame(rows)
+    results.to_csv(output_dir / "event_ordering_sensitivity.csv", index=False)
+    results.to_csv(output_dir / "event_ordering_policy_sensitivity.csv", index=False)
+    return results
+
+
+def write_dataset_scope(market_data, output_dir: Path, suite_size: str, dataset_scope: str) -> pd.DataFrame:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    source_days = []
+    if "_source_day" in market_data.orderbook.columns:
+        source_days = sorted(str(day) for day in market_data.orderbook["_source_day"].dropna().unique())
+    table = pd.DataFrame(
+        [
+            {
+                "suite_size": suite_size,
+                "dataset_scope": dataset_scope,
+                "orderbook_rows": int(len(market_data.orderbook)),
+                "trade_rows": int(len(market_data.trades)),
+                "funding_rows": int(len(market_data.fundings)),
+                "source_days": ",".join(source_days),
+            }
+        ]
+    )
+    table.to_csv(output_dir / "run_scope.csv", index=False)
+    return table
+
+
+def run_sensitivity_suites(config: BacktestConfig, market_data, audit, output_dir: Path, dataset_scope: str = "unknown") -> None:
     queue_variants = [
         ("conservative_queue", replace(config, execution=replace(config.execution, fill_model="conservative_queue", queue_depletion_fraction=0.0))),
         ("partial_queue_0.25", replace(config, execution=replace(config.execution, fill_model="partial_queue", queue_depletion_fraction=0.25))),
@@ -251,12 +333,19 @@ def run_sensitivity_suites(config: BacktestConfig, market_data, audit, output_di
         (f"fee_{fee_bps:g}bps", replace(config, execution=replace(config.execution, maker_fee_bps=fee_bps)))
         for fee_bps in (0.0, 0.5, 1.0)
     ]
-    _write_variant_table(queue_variants, market_data, audit, output_dir / "queue_sensitivity", "queue_sensitivity.csv")
-    _write_variant_table(latency_variants, market_data, audit, output_dir / "latency_sensitivity", "latency_sensitivity.csv")
-    _write_variant_table(fee_variants, market_data, audit, output_dir / "fee_sensitivity", "fee_sensitivity.csv")
+    _write_variant_table(queue_variants, market_data, audit, output_dir / "queue_sensitivity", "queue_sensitivity.csv", dataset_scope)
+    _write_variant_table(latency_variants, market_data, audit, output_dir / "latency_sensitivity", "latency_sensitivity.csv", dataset_scope)
+    _write_variant_table(fee_variants, market_data, audit, output_dir / "fee_sensitivity", "fee_sensitivity.csv", dataset_scope)
 
 
-def _write_variant_table(variants: list[tuple[str, BacktestConfig]], market_data, audit, output_dir: Path, filename: str) -> pd.DataFrame:
+def _write_variant_table(
+    variants: list[tuple[str, BacktestConfig]],
+    market_data,
+    audit,
+    output_dir: Path,
+    filename: str,
+    dataset_scope: str = "unknown",
+) -> pd.DataFrame:
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     for name, cfg in variants:
@@ -265,6 +354,7 @@ def _write_variant_table(variants: list[tuple[str, BacktestConfig]], market_data
         row.update(
             {
                 "variant": name,
+                "dataset_scope": dataset_scope,
                 "fill_model": cfg.execution.fill_model,
                 "queue_depletion_fraction": cfg.execution.queue_depletion_fraction,
                 "cancel_latency_ms": cfg.execution.cancel_latency_ms if cfg.execution.cancel_latency_ms is not None else cfg.execution.latency_ms,
@@ -294,6 +384,20 @@ def _core_robustness_variants(config: BacktestConfig) -> list[tuple[str, Backtes
     )
     variants.append(("pressure_filter_off", replace(config, strategy=replace(config.strategy, pressure_stop=999.0, k_adv=0.0))))
     return variants
+
+
+def _full_core_robustness_variants(config: BacktestConfig) -> list[tuple[str, BacktestConfig]]:
+    return [
+        ("baseline", config),
+        ("simple_fill", replace(config, execution=replace(config.execution, fill_model="simple"))),
+        ("partial_queue_0.25", replace(config, execution=replace(config.execution, fill_model="partial_queue", queue_depletion_fraction=0.25))),
+        ("partial_queue_0.50", replace(config, execution=replace(config.execution, fill_model="partial_queue", queue_depletion_fraction=0.50))),
+        ("cancel_latency_0", replace(config, execution=replace(config.execution, cancel_latency_ms=0))),
+        ("cancel_latency_500", replace(config, execution=replace(config.execution, cancel_latency_ms=500))),
+        ("pressure_filter_off", replace(config, strategy=replace(config.strategy, pressure_stop=999.0, k_adv=0.0))),
+        ("fee_0bps", replace(config, execution=replace(config.execution, maker_fee_bps=0.0))),
+        ("fee_1bps", replace(config, execution=replace(config.execution, maker_fee_bps=1.0))),
+    ]
 
 
 def _normalize_suite_size(value: str) -> str:

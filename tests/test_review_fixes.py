@@ -11,7 +11,7 @@ from market_maker import cli
 from market_maker.accounting import AccountingState
 from market_maker.book_state import BookState
 from market_maker.config import AuditConfig, BacktestConfig, DataConfig, ExecutionConfig, RiskConfig, StrategyConfig
-from market_maker.data_audit import AuditResult, run_audit
+from market_maker.data_audit import AuditResult, run_audit, write_audit_outputs
 from market_maker.data_loader import MarketData
 from market_maker.features import RollingFeatures
 from market_maker.metrics import MetricsBundle, daily_summary, realized_spread_stats, summarize_metrics, summarize_orders
@@ -431,6 +431,15 @@ def test_audit_reports_same_timestamp_trade_book_sensitivity():
     assert result.event_ordering_stats["default_equal_timestamp_policy"] == "trade_before_book"
 
 
+def test_audit_outputs_label_event_ordering_counts_as_exposure(tmp_path):
+    result = run_audit(_market_data(), _config().audit)
+
+    write_audit_outputs(result, tmp_path)
+
+    assert (tmp_path / "event_ordering_exposure.csv").exists()
+    assert not (tmp_path / "event_ordering_sensitivity.csv").exists()
+
+
 def test_metrics_rename_spread_capture_and_surface_pending_cancel_quality():
     equity = pd.DataFrame(
         {
@@ -687,6 +696,31 @@ def test_realized_spread_prefers_event_level_book_marks():
 
     assert one_second["mark_source"] == "event_level_book"
     assert one_second["average_realized_spread"] == pytest.approx(-1.0)
+
+
+def test_realized_spread_drops_marks_beyond_lookup_tolerance():
+    fills = pd.DataFrame(
+        [
+            {
+                "timestamp": pd.Timestamp("2026-03-19T00:00:00Z"),
+                "order_id": 1,
+                "side": "bid",
+                "price": 99.0,
+                "quantity": 1.0,
+                "mid_at_fill": 100.0,
+            }
+        ]
+    )
+    mark_curve = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2026-03-19T00:00:03Z"], utc=True),
+            "mid": [98.0],
+        }
+    )
+
+    stats = realized_spread_stats(fills, pd.DataFrame(), mark_curve, max_mark_lag_ms=1_000.0)
+
+    assert stats.empty
 
 
 def test_order_stats_expose_max_lifetime_and_filled_order_ratio():

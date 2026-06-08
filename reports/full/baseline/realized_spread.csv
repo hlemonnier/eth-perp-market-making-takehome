@@ -1,0 +1,4 @@
+horizon_seconds,mark_source,marks_available,average_realized_spread,average_toxicity,median_mark_lookup_lag_ms,max_mark_lookup_lag_ms,max_allowed_mark_lookup_lag_ms
+1,event_level_book,3581577,-0.22999999999992723,0.22999999999992723,9.973467999999999,51.993317,1000.0
+5,event_level_book,3581577,-0.37999999999992723,0.37999999999992723,36.487985,75.105487,1000.0
+30,event_level_book,3581577,-0.4499999999998181,0.4499999999998181,59.47846,93.917443,1000.0

@@ -23,6 +23,7 @@ class ExecutionConfig:
     cancel_latency_ms: int | None = None
     queue_depletion_fraction: float = 0.0
     force_flat_slippage_bps: float = 0.0
+    force_flat_fee_bps: float | None = None
     stale_book_max_age_ms: float = 1000.0
 
 

@@ -1,0 +1,2 @@
+suite_size,dataset_scope,orderbook_rows,trade_rows,funding_rows,source_days
+smoke,smoke_1000_rows,1000,17,3,2026-03-19

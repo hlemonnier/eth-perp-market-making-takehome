@@ -248,7 +248,7 @@ def write_audit_outputs(result: AuditResult, output_dir: str | Path) -> None:
     result.summary.to_csv(output / "audit_summary.csv", index=False)
     pd.DataFrame([result.spread_stats]).to_csv(output / "spread_stats.csv", index=False)
     pd.DataFrame([result.depth_stats]).to_csv(output / "depth_stats.csv", index=False)
-    pd.DataFrame([result.event_ordering_stats]).to_csv(output / "event_ordering_sensitivity.csv", index=False)
+    pd.DataFrame([result.event_ordering_stats]).to_csv(output / "event_ordering_exposure.csv", index=False)
 
 
 def _empty_event_ordering_sensitivity(data: MarketData) -> dict[str, object]:

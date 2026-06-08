@@ -3,7 +3,7 @@ from dataclasses import replace
 import pandas as pd
 
 from market_maker.config import AuditConfig, BacktestConfig, DataConfig, ExecutionConfig, RiskConfig, StrategyConfig
-from market_maker.data_loader import MarketData, load_market_data
+from market_maker.data_loader import MarketData, _sort_market_frame, load_market_data
 from market_maker.orders import LiveOrder, Side
 from market_maker.simulator import Simulator
 
@@ -91,6 +91,21 @@ def test_loader_preserves_file_order_for_same_timestamp_trades(tmp_path):
     assert same_time["size"].tolist() == [2.0, 3.0]
 
 
+def test_sort_market_frame_returns_already_clean_range_index_frame():
+    frame = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2026-03-19T00:00:00Z", "2026-03-19T00:00:01Z"], utc=True),
+            "_source_day": ["2026-03-19", "2026-03-19"],
+            "_row_id": [0, 1],
+        }
+    )
+
+    sorted_frame = _sort_market_frame(frame)
+
+    assert sorted_frame is frame
+    assert isinstance(sorted_frame.index, pd.RangeIndex)
+
+
 def test_same_timestamp_trade_cannot_fill_new_quote():
     t0 = "2026-03-19T00:00:00Z"
     data = MarketData(
@@ -109,6 +124,41 @@ def test_same_timestamp_trade_cannot_fill_new_quote():
     )
     result = Simulator(data, config(latency_ms=0), tick_size=1.0).run()
     assert result.fills.empty
+
+
+def test_book_before_trade_policy_cancels_toxic_quote_before_equal_time_trade():
+    t0 = "2026-03-19T00:00:00Z"
+    t1 = "2026-03-19T00:00:01Z"
+    data = MarketData(
+        orderbook=pd.DataFrame(
+            [
+                book_row(t0),
+                {
+                    **book_row(t1),
+                    "bid_qty_1": 1.0,
+                    "ask_qty_1": 100.0,
+                },
+            ]
+        ),
+        trades=pd.DataFrame(
+            [
+                {
+                    "datetime": pd.Timestamp(t1),
+                    "price": 99.0,
+                    "size": 1.0,
+                    "is_maker_ask": 0,
+                }
+            ]
+        ),
+        fundings=pd.DataFrame([{"datetime": pd.Timestamp(t0), "funding_rate": 0.0}]),
+    )
+    cfg = replace(config(latency_ms=0), strategy=replace(config().strategy, pressure_stop=0.5, w_book=1.0))
+
+    default_result = Simulator(data, cfg, tick_size=1.0).run()
+    alternate_result = Simulator(data, cfg, tick_size=1.0, same_timestamp_policy="book_before_trade").run()
+
+    assert len(default_result.fills) == 1
+    assert alternate_result.fills.empty
 
 
 def test_cancel_records_event_timestamp_not_stale_book_timestamp():

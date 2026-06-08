@@ -24,25 +24,39 @@ Reports include mid-marked PnL, liquidation-adjusted PnL, forced-flat PnL, reali
 
 ## Reproduce
 
-Run the bounded smoke workflow. It compiles, tests, and uses the first 50,000 order book rows from the first day so it finishes quickly:
+Run the bounded smoke workflow. It compiles, tests, uses the first 1,000 order book rows from the first day, and writes a deliberately small output set under `reports/sample/smoke`:
 
 ```bash
 make smoke
 ```
 
-Run the core workflow. It uses the bounded sample plus robustness, ablation, queue, latency, and fee sensitivity outputs:
+Run the core workflow. It uses a labeled 50,000-row sample plus event-ordering, robustness, ablation, queue, latency, and fee sensitivity outputs under `reports/sample/reproduce`:
 
 ```bash
 make reproduce
 ```
 
-Run only the core robustness grid:
+Run only the sample core robustness grid:
 
 ```bash
-mm-backtest robustness --suite-size core --output-dir reports/robustness
+mm-backtest robustness --suite-size core --output-dir reports/sample/robustness
 ```
 
-The robustness grid writes `grid_results.csv` and a PnL pivot by queue depletion and cancel latency. `--suite-size full` is available for a much heavier exhaustive grid, but it is not the default submission workflow.
+Generate the canonical full-dataset reports:
+
+```bash
+mm-backtest backtest --output-dir reports/full/baseline
+mm-backtest backtest --fill-model simple --output-dir reports/full/simple_fill
+mm-backtest event-ordering --suite-size full_core --output-dir reports/full
+```
+
+Run the full-dataset core robustness subset:
+
+```bash
+make full-robustness
+```
+
+The full robustness subset writes the nine required full-data rows under `reports/full/robustness_core/grid_results.csv`: baseline, simple fill, partial queue at 0.25 and 0.50, cancel latency at 0 and 500 ms, pressure filter off, 0 bps fee, and 1 bps fee. `--suite-size full` is available for a much heavier exhaustive grid, but it is not the default submission workflow. Sample/core CSV outputs include a `dataset_scope` column and reproduction roots include `run_scope.csv`, so bounded-sample diagnostics are not confused with full-dataset evidence.
 
 ## Known Limitations
 
