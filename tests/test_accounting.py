@@ -58,6 +58,17 @@ def test_funding_pnl_long_and_short():
     assert short_account.accrue_funding(3600, 2000.0, 0.0001, 8.0) == pytest.approx(0.025)
 
 
+def test_funding_accrual_accumulates_rate_changes_over_intervals():
+    account = AccountingState(inventory=2.0)
+
+    first = account.accrue_funding(3600, 2000.0, 0.0001, 8.0)
+    second = account.accrue_funding(7200, 2100.0, -0.0002, 8.0)
+
+    assert first == pytest.approx(-0.05)
+    assert second == pytest.approx(0.21)
+    assert account.funding_pnl == pytest.approx(0.16)
+
+
 def test_mark_to_market_example():
     account = AccountingState(cash=-1000.0, inventory=0.5, average_entry_price=2000.0)
     assert account.equity(2100.0) == pytest.approx(50.0)

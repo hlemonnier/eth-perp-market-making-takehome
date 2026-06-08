@@ -59,6 +59,8 @@ class Simulator:
         self.mark_rows: list[dict[str, object]] = []
         self.fill_rows: list[dict[str, object]] = []
         self.order_rows: list[dict[str, object]] = []
+        self.daily_peak_equity: dict[str, float] = {}
+        self.daily_max_drawdown_loss: dict[str, float] = {}
 
     def run(self) -> BacktestResult:
         arrays = _PreparedArrays.from_market_data(self.data)
@@ -114,7 +116,15 @@ class Simulator:
         if not fills.empty:
             fills["timestamp"] = pd.to_datetime(fills["timestamp"], utc=True)
         orders = pd.DataFrame(self.order_rows)
-        metrics = summarize_metrics(equity_curve, fills, orders, liquidation_equity, self.risk.max_drawdown_loss, mark_curve)
+        metrics = summarize_metrics(
+            equity_curve,
+            fills,
+            orders,
+            liquidation_equity,
+            self.risk.max_drawdown_loss,
+            mark_curve,
+            self.daily_max_drawdown_loss,
+        )
         return BacktestResult(equity_curve, fills, orders, metrics, liquidation_equity, mark_curve)
 
     def _accrue_funding(self, timestamp: pd.Timestamp) -> None:
@@ -209,6 +219,7 @@ class Simulator:
         self.previous_mark = self.book.mid
         equity = self.account.equity(self.book.mid)
         self.risk.update_drawdown(timestamp, equity)
+        self._update_daily_drawdown(timestamp, equity)
 
         if self.risk.kill_switch_active:
             decision = QuoteDecision(
@@ -412,6 +423,16 @@ class Simulator:
 
     def _quote_expiry_time(self, order: LiveOrder) -> pd.Timestamp:
         return pd.Timestamp(order.created_time.value + self.max_quote_age_ns, unit="ns", tz="UTC")
+
+    def _update_daily_drawdown(self, timestamp: pd.Timestamp, equity: float) -> None:
+        date_key = timestamp.date().isoformat()
+        peak = self.daily_peak_equity.get(date_key)
+        if peak is None or equity > peak:
+            peak = equity
+            self.daily_peak_equity[date_key] = peak
+        loss = peak - equity
+        if loss > self.daily_max_drawdown_loss.get(date_key, 0.0):
+            self.daily_max_drawdown_loss[date_key] = float(loss)
 
     def _enforce_reduce_only_orders(self, timestamp: pd.Timestamp) -> None:
         if not self.config.risk.eod_reduce_window_minutes:

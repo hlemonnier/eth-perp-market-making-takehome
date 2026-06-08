@@ -398,6 +398,32 @@ def test_event_level_drawdown_captures_intraminute_loss():
     assert summary["max_drawdown"] > summary["sampled_1m_max_drawdown"]
 
 
+def test_daily_drawdown_uses_event_level_equity_not_sampled_curve():
+    data = _market_data(
+        orderbook=[
+            _book_row("2026-03-19T00:00:00Z", 99.0, 101.0, row_id=0),
+            _book_row("2026-03-19T00:00:02Z", 60.0, 62.0, row_id=1),
+            _book_row("2026-03-19T00:00:03Z", 100.0, 102.0, row_id=2),
+        ],
+        trades=[
+            {
+                "datetime": pd.Timestamp("2026-03-19T00:00:01Z"),
+                "price": 99.0,
+                "size": 1.0,
+                "is_maker_ask": 0,
+                "_source_day": "2026-03-19",
+                "_row_id": 0,
+            }
+        ],
+    )
+
+    result = Simulator(data, _config(report_frequency="1min"), tick_size=1.0).run()
+    daily = result.metrics.daily.iloc[0]
+
+    assert daily["max_drawdown"] >= 38.0
+    assert daily["max_drawdown"] > daily["sampled_1m_max_drawdown"]
+
+
 def test_queue_ahead_includes_better_and_equal_price_depth():
     book = BookState()
     assert book.update(
@@ -609,6 +635,50 @@ def test_cli_refuses_backtest_when_audit_has_errors_without_override(monkeypatch
 
     with pytest.raises(SystemExit, match="Audit failed; refusing to run backtest"):
         cli.run_command(args)
+
+
+def test_cli_allow_audit_errors_runs_backtest_with_explicit_override(monkeypatch, tmp_path):
+    args = SimpleNamespace(
+        command="backtest",
+        config="config/default.yaml",
+        data_dir=None,
+        output_dir=str(tmp_path),
+        fill_model=None,
+        allow_audit_errors=True,
+    )
+    bad_audit = AuditResult(
+        tick_size=1.0,
+        summary=pd.DataFrame([{"check": "bad_book", "severity": "error", "value": 1, "detail": "bad"}]),
+        spread_stats={},
+        depth_stats={},
+    )
+    empty_metrics = MetricsBundle(
+        overall=pd.DataFrame(),
+        daily=pd.DataFrame(),
+        fill_stats=pd.DataFrame(),
+        order_stats=pd.DataFrame(),
+        inventory_stats=pd.DataFrame(),
+        realized_spread=pd.DataFrame(),
+    )
+    ran = {"simulator": False}
+
+    class DummySimulator:
+        def __init__(self, *_):
+            ran["simulator"] = True
+
+        def run(self):
+            return BacktestResult(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), empty_metrics, 0.0)
+
+    monkeypatch.setattr(cli, "load_config", lambda _: _config())
+    monkeypatch.setattr(cli, "load_market_data", lambda *_: _market_data())
+    monkeypatch.setattr(cli, "run_audit", lambda *_: bad_audit)
+    monkeypatch.setattr(cli, "write_audit_outputs", lambda *_: None)
+    monkeypatch.setattr(cli, "write_outputs", lambda *_: None)
+    monkeypatch.setattr(cli, "Simulator", DummySimulator)
+
+    cli.run_command(args)
+
+    assert ran["simulator"]
 
 
 def test_fast_orderbook_update_validates_deeper_level_monotonicity():

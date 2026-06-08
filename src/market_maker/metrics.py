@@ -35,7 +35,11 @@ def sharpe_like_1m(equity_curve: pd.DataFrame) -> float:
     return float(np.sqrt(1440.0) * pnl.mean() / pnl.std(ddof=1))
 
 
-def daily_summary(equity_curve: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFrame:
+def daily_summary(
+    equity_curve: pd.DataFrame,
+    fills: pd.DataFrame,
+    event_daily_drawdown: dict[str, float] | None = None,
+) -> pd.DataFrame:
     if equity_curve.empty:
         return pd.DataFrame()
     curve = equity_curve.copy()
@@ -54,6 +58,12 @@ def daily_summary(equity_curve: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFra
         end_unrealized = float(day["unrealized_trading_pnl"].iloc[-1])
         end_funding = float(day["funding_pnl"].iloc[-1])
         end_fees = float(day["fees"].iloc[-1])
+        sampled_drawdown = max_drawdown(day["equity"])
+        event_drawdown = (
+            float(event_daily_drawdown.get(date, sampled_drawdown))
+            if event_daily_drawdown is not None
+            else sampled_drawdown
+        )
         previous_end = end_equity
         rows.append(
             {
@@ -75,7 +85,8 @@ def daily_summary(equity_curve: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFra
                 "ask_volume_eth": float(day_fills.loc[day_fills["side"] == "ask", "quantity"].sum()) if not day_fills.empty else 0.0,
                 "average_inventory": float(day["inventory"].mean()),
                 "max_abs_inventory": float(day["inventory"].abs().max()),
-                "max_drawdown": max_drawdown(day["equity"]),
+                "max_drawdown": event_drawdown,
+                "sampled_1m_max_drawdown": sampled_drawdown,
             }
         )
         previous_realized = end_realized
@@ -138,6 +149,7 @@ def summarize_metrics(
     final_liquidation_adjusted_equity: float,
     event_max_drawdown_loss: float | None = None,
     mark_curve: pd.DataFrame | None = None,
+    event_daily_drawdown: dict[str, float] | None = None,
 ) -> MetricsBundle:
     if equity_curve.empty:
         empty = pd.DataFrame()
@@ -214,7 +226,7 @@ def summarize_metrics(
 
     return MetricsBundle(
         overall=overall,
-        daily=daily_summary(equity_curve, fills),
+        daily=daily_summary(equity_curve, fills, event_daily_drawdown),
         fill_stats=fill_stats,
         order_stats=order_stats,
         inventory_stats=inventory_stats,

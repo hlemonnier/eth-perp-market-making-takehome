@@ -156,7 +156,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "## Interpretation Discipline",
         "",
-        "Use the PnL decomposition rather than total PnL alone. Positive realized trading PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory. Overall max drawdown is event-level; daily drawdown is a report-frequency diagnostic. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.",
+        "Use the PnL decomposition rather than total PnL alone. Positive realized trading PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory. Overall and daily max drawdown are event-level diagnostics; sampled 1-minute drawdown remains in the tables for comparison. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.",
     ]
     return "\n".join(lines) + "\n"
 
