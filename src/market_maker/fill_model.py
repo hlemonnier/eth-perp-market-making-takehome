@@ -26,10 +26,11 @@ def trade_reaches_order(order: LiveOrder, trade: TradeEvent) -> bool:
 
 
 class FillModel:
-    def __init__(self, name: str = "conservative_queue"):
-        if name not in {"simple", "conservative_queue"}:
+    def __init__(self, name: str = "conservative_queue", queue_depletion_fraction: float = 0.0):
+        if name not in {"simple", "conservative_queue", "partial_queue", "calibrated_queue"}:
             raise ValueError(f"Unknown fill model: {name}")
         self.name = name
+        self.queue_depletion_fraction = max(0.0, min(1.0, float(queue_depletion_fraction)))
 
     def process_trade(
         self,
@@ -42,9 +43,9 @@ class FillModel:
 
         queue_before = order.queue_ahead
         eligible_size = trade.size
-        if self.name == "conservative_queue" and order.queue_ahead > 0:
+        if self.name in {"conservative_queue", "partial_queue", "calibrated_queue"} and order.queue_ahead > 0:
             consumed_ahead = min(order.queue_ahead, eligible_size)
-            order.queue_ahead -= consumed_ahead
+            order.queue_ahead = max(0.0, order.queue_ahead - consumed_ahead)
             eligible_size -= consumed_ahead
 
         fill_qty = min(order.remaining_quantity, eligible_size)

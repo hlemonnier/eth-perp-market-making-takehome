@@ -33,6 +33,7 @@ def write_outputs(
     result.metrics.order_cancel_reasons.to_csv(output / "order_cancel_reasons.csv", index=False)
     result.metrics.inventory_stats.to_csv(output / "inventory_stats.csv", index=False)
     result.metrics.realized_spread.to_csv(output / "realized_spread.csv", index=False)
+    _fill_diagnostic_breakdowns(result.fills).to_csv(output / "fill_diagnostics.csv", index=False)
     _fee_sensitivity(overall=result.metrics.overall).to_csv(output / "fee_sensitivity.csv", index=False)
     _write_config_snapshot(config, output)
 
@@ -66,7 +67,10 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         f"- Latency assumption: `{config.execution.latency_ms}` ms.",
         f"- Funding accrual uses latest known funding over `{config.execution.funding_period_hours}` hour periods; positive funding is assumed to mean longs pay shorts.",
         f"- Inferred tick size: `{audit.tick_size}`.",
-        "- End inventory is marked to mid for baseline PnL and to bid/ask for liquidation-adjusted sensitivity.",
+        f"- Cancel latency assumption: `{config.execution.cancel_latency_ms if config.execution.cancel_latency_ms is not None else config.execution.latency_ms}` ms.",
+        f"- Queue depletion fraction: `{config.execution.queue_depletion_fraction}`.",
+        f"- Forced-flat slippage: `{config.execution.force_flat_slippage_bps}` bps.",
+        "- End inventory is reported three ways: mid-marked total PnL, bid/ask liquidation-adjusted PnL, and forced-flat PnL after configured slippage.",
         f"- Git commit: `{git_commit}`.",
         "",
         "## Audit Summary",
@@ -92,7 +96,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "## Strategy",
         "",
-        "Fair value combines mid, microprice, and past-only trade imbalance. Quotes use adaptive half-distance, inventory-skewed reservation price, funding target inventory, book-imbalance adverse-pressure side stops, volatility cooldown, and end-of-day reduce-only behavior.",
+        "Fair value combines mid, microprice, and past-only trade imbalance. Quotes use adaptive half-distance, inventory-skewed reservation price, funding target inventory, book-imbalance adverse-pressure side stops, volatility cooldown, and end-of-day reduce-only behavior. Pressure stops are enforced at simulator level on existing live orders; fills during cancel latency are explicitly flagged.",
         "",
         "## Results",
         "",
@@ -112,6 +116,10 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         _markdown_table(result.metrics.fill_stats),
         "",
+        "### Fill Diagnostic Breakdowns",
+        "",
+        _markdown_table(_fill_diagnostic_breakdowns(result.fills), max_rows=60),
+        "",
         "## Order Statistics",
         "",
         _markdown_table(result.metrics.order_stats),
@@ -130,14 +138,14 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         _markdown_table(result.metrics.realized_spread),
         "",
-        "## Maker Fee Sensitivity",
+        "## Maker Fee/Rebate Sensitivity",
         "",
         _markdown_table(_fee_sensitivity(result.metrics.overall)),
         "",
         "## Known Limitations",
         "",
         "- The implemented strategy is simple and not proven profitable; use the run as simulator validation and diagnostics, not as evidence of robust market-making edge.",
-        "- The conservative queue model likely underfills because L2 snapshots and prints do not reveal cancellations ahead of our simulated order.",
+        "- The conservative queue model likely underfills because L2 snapshots and prints do not reveal cancellations ahead of our simulated order; use `partial_queue`/`calibrated_queue` queue-depletion sweeps as robustness checks.",
         "- The simple fill model is intentionally aggressive and stress-tests adverse selection; it is not a better-performance upper bound.",
         "- Order churn remains high relative to fills; fill/order ratios, cancel/order ratios, and cancellation reasons should be read as diagnostics rather than optimized execution policy.",
         "",
@@ -156,7 +164,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "## Interpretation Discipline",
         "",
-        "Use the PnL decomposition rather than total PnL alone. Positive realized trading PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory. Overall and daily max drawdown are event-level diagnostics; sampled 1-minute drawdown remains in the tables for comparison. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.",
+        "Use the PnL decomposition rather than total PnL alone. Positive forced-flat PnL with controlled inventory and limited adverse selection is stronger evidence of market-making quality than mark-to-market gains from residual inventory. Overall and daily max drawdown are event-level diagnostics; sampled 1-minute drawdown remains in the tables for comparison. The Sharpe-like metric is a short-sample diagnostic only, not a statistically reliable Sharpe estimate.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -168,27 +176,110 @@ def _write_config_snapshot(config: BacktestConfig, output: Path) -> None:
     (output / "config_used.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
 
 
-def _fee_sensitivity(overall: pd.DataFrame, bps_values: tuple[float, ...] = (0.0, 1.0, 2.0)) -> pd.DataFrame:
+def _fee_sensitivity(overall: pd.DataFrame, bps_values: tuple[float, ...] = (-0.5, 0.0, 0.5, 1.0)) -> pd.DataFrame:
     if overall.empty:
-        return pd.DataFrame(columns=["maker_fee_bps", "estimated_fees", "estimated_total_pnl", "estimated_pnl_per_turnover"])
+        return pd.DataFrame(
+            columns=[
+                "maker_fee_bps",
+                "estimated_fees",
+                "estimated_total_pnl",
+                "estimated_realized_pnl",
+                "max_drawdown",
+                "fills",
+                "turnover_usd",
+                "estimated_pnl_per_turnover",
+            ]
+        )
     row = overall.iloc[0]
     turnover = float(row.get("turnover_usd", 0.0))
     total_pnl = float(row.get("total_pnl", 0.0))
+    realized_pnl = float(row.get("realized_trading_pnl", 0.0))
     current_fees = float(row.get("fees", 0.0))
     pre_fee_pnl = total_pnl + current_fees
     records = []
     for maker_fee_bps in bps_values:
         estimated_fees = turnover * maker_fee_bps / 10_000.0
         estimated_total_pnl = pre_fee_pnl - estimated_fees
+        estimated_realized_pnl = realized_pnl - estimated_fees
         records.append(
             {
                 "maker_fee_bps": maker_fee_bps,
                 "estimated_fees": estimated_fees,
                 "estimated_total_pnl": estimated_total_pnl,
+                "estimated_realized_pnl": estimated_realized_pnl,
+                "max_drawdown": float(row.get("max_drawdown", 0.0)),
+                "fills": int(float(row.get("total_fills", 0.0))),
+                "turnover_usd": turnover,
                 "estimated_pnl_per_turnover": estimated_total_pnl / turnover if turnover else 0.0,
             }
         )
     return pd.DataFrame(records)
+
+
+def _fill_diagnostic_breakdowns(fills: pd.DataFrame) -> pd.DataFrame:
+    columns = ["breakdown", "bucket", "fills", "avg_realized_spread_5s", "avg_markout_1s", "avg_quote_age_ms"]
+    if fills.empty:
+        return pd.DataFrame(columns=columns)
+    df = fills.copy()
+    specs = {
+        "side": df["side"] if "side" in df.columns else pd.Series("unknown", index=df.index),
+        "pressure_bucket": pd.cut(
+            _numeric_series(df, "pressure_at_fill"),
+            bins=[-1.01, -0.75, -0.50, -0.25, 0.25, 0.50, 0.75, 1.01],
+            include_lowest=True,
+        ),
+        "quote_age_bucket_ms": pd.cut(
+            _numeric_series(df, "quote_age_ms"),
+            bins=[-0.1, 250, 1000, 5000, 30000, float("inf")],
+            labels=["0-250", "250-1000", "1000-5000", "5000-30000", "30000+"],
+        ),
+        "queue_ahead_bucket": pd.cut(
+            _numeric_series(df, "queue_ahead_initial"),
+            bins=[-0.1, 0, 1, 5, 20, float("inf")],
+            labels=["0", "0-1", "1-5", "5-20", "20+"],
+        ),
+        "inventory_bucket": pd.cut(
+            _numeric_series(df, "inventory_before"),
+            bins=[-float("inf"), -0.5, -0.05, 0.05, 0.5, float("inf")],
+            labels=["short_large", "short_small", "flat", "long_small", "long_large"],
+        ),
+        "spread_bucket": pd.cut(
+            _numeric_series(df, "spread_at_fill"),
+            bins=[-0.1, 0.1, 0.5, 1.0, 2.0, float("inf")],
+            labels=["<=0.1", "0.1-0.5", "0.5-1", "1-2", "2+"],
+        ),
+    }
+    rows = []
+    for breakdown, labels in specs.items():
+        temp = df.assign(_bucket=labels.astype("string").fillna("missing"))
+        grouped = temp.groupby("_bucket", dropna=False)
+        for bucket, group in grouped:
+            rows.append(
+                {
+                    "breakdown": breakdown,
+                    "bucket": str(bucket),
+                    "fills": int(len(group)),
+                    "avg_realized_spread_5s": _safe_mean(group.get("realized_spread_5s")),
+                    "avg_markout_1s": _safe_mean(group.get("markout_1s")),
+                    "avg_quote_age_ms": _safe_mean(group.get("quote_age_ms")),
+                }
+            )
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series(pd.NA, index=df.index)
+    return pd.to_numeric(df[column], errors="coerce")
+
+
+def _safe_mean(values: pd.Series | None) -> float:
+    if values is None:
+        return 0.0
+    numeric = pd.to_numeric(values, errors="coerce").dropna()
+    if numeric.empty:
+        return 0.0
+    return float(numeric.mean())
 
 
 def _git_commit() -> str:
@@ -227,13 +318,14 @@ def _interpretation(overall: dict[str, object]) -> str:
     if not overall:
         return "No backtest result was produced."
     total = float(overall.get("total_pnl", 0.0))
+    forced_flat = float(overall.get("forced_flat_pnl", overall.get("liquidation_adjusted_pnl", total)))
     realized = float(overall.get("realized_trading_pnl", 0.0))
     unrealized = float(overall.get("unrealized_trading_pnl", 0.0))
     funding = float(overall.get("funding_pnl", 0.0))
     fills = int(float(overall.get("total_fills", 0.0)))
     drawdown = float(overall.get("max_drawdown", 0.0))
     parts = [
-        f"The run finished with total PnL `{total:.4f}` USD, realized trading PnL `{realized:.4f}` USD, unrealized trading PnL `{unrealized:.4f}` USD, and funding PnL `{funding:.4f}` USD.",
+        f"The run finished with mid-marked total PnL `{total:.4f}` USD, forced-flat PnL `{forced_flat:.4f}` USD, realized trading PnL `{realized:.4f}` USD, unrealized trading PnL `{unrealized:.4f}` USD, and funding PnL `{funding:.4f}` USD.",
         f"The strategy generated `{fills}` fills and max drawdown `{drawdown:.4f}` USD under the selected fill model.",
     ]
     if abs(unrealized) > max(abs(realized) * 3.0, 1.0):

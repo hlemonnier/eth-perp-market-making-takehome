@@ -87,6 +87,7 @@ class MarketMakingStrategy:
 
         reservation = fair - cfg.theta_inv * delta * (account.inventory - q_target) / cfg.q_max
         pressure = cfg.w_book * book.top_imbalance + cfg.w_trade * trade_imbalance
+        expected_future_mid = fair + cfg.pressure_markout_ticks * self.tick_size * pressure
         bid_delta = delta * (1.0 + cfg.k_adv * max(0.0, -pressure))
         ask_delta = delta * (1.0 + cfg.k_adv * max(0.0, pressure))
         raw_bid = reservation - bid_delta
@@ -95,6 +96,11 @@ class MarketMakingStrategy:
         bid_price = min(floor_to_tick(raw_bid, self.tick_size), book.best_ask - self.tick_size)
         ask_price = max(ceil_to_tick(raw_ask, self.tick_size), book.best_bid + self.tick_size)
         bid_size, ask_size = clip_quote_sizes(account.inventory, q_target, cfg)
+        required_edge = (cfg.min_edge_ticks + cfg.latency_buffer_ticks) * self.tick_size
+        if expected_future_mid - bid_price <= required_edge:
+            bid_size = 0.0
+        if ask_price - expected_future_mid <= required_edge:
+            ask_size = 0.0
 
         if pressure < -cfg.pressure_stop:
             bid_size = 0.0

@@ -1,2 +1,2 @@
-fill_count,fill_volume_eth,bid_fills,ask_fills,mean_fill_size,median_fill_size,average_fill_notional,average_passive_edge_to_mid
-427,40.43474756054843,213,214,0.09469495915819305,0.09972921441040801,203.7024312779686,0.2827868852459038
+fill_count,fill_volume_eth,bid_fills,ask_fills,mean_fill_size,median_fill_size,average_fill_notional,average_passive_edge_to_mid,pressure_stop_violation_fills,average_quote_age_ms,average_book_age_ms
+679,63.74591265614714,343,336,0.09388205103998107,0.0983615969711991,201.8263405826544,0.12540500736373958,0,2681.17858910162,28.328315169366714

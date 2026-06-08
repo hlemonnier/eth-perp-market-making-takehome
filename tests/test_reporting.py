@@ -61,7 +61,7 @@ def test_fee_sensitivity_estimates_fee_drag_from_turnover():
     sensitivity = _fee_sensitivity(overall)
 
     one_bp = sensitivity[sensitivity["maker_fee_bps"] == 1.0].iloc[0]
-    two_bp = sensitivity[sensitivity["maker_fee_bps"] == 2.0].iloc[0]
+    half_bp = sensitivity[sensitivity["maker_fee_bps"] == 0.5].iloc[0]
     assert one_bp["estimated_fees"] == pytest.approx(1.0)
     assert one_bp["estimated_total_pnl"] == pytest.approx(9.0)
-    assert two_bp["estimated_total_pnl"] == pytest.approx(8.0)
+    assert half_bp["estimated_total_pnl"] == pytest.approx(9.5)

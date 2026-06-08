@@ -150,23 +150,32 @@ def summarize_metrics(
     event_max_drawdown_loss: float | None = None,
     mark_curve: pd.DataFrame | None = None,
     event_daily_drawdown: dict[str, float] | None = None,
+    final_forced_flat_equity: float | None = None,
 ) -> MetricsBundle:
     if equity_curve.empty:
         empty = pd.DataFrame()
         return MetricsBundle(empty, empty, empty, empty, empty, empty)
 
     final = equity_curve.iloc[-1]
+    forced_flat = final_liquidation_adjusted_equity if final_forced_flat_equity is None else final_forced_flat_equity
+    total_pnl = float(final["equity"])
     total_fill_volume = float(fills["quantity"].sum()) if not fills.empty else 0.0
     turnover = float((fills["quantity"] * fills["price"]).sum()) if not fills.empty else 0.0
     overall = pd.DataFrame(
         [
             {
-                "total_pnl": float(final["equity"]),
+                "total_pnl": total_pnl,
                 "realized_trading_pnl": float(final["realized_trading_pnl"]),
                 "unrealized_trading_pnl": float(final["unrealized_trading_pnl"]),
+                "spread_capture_pnl": float(final["realized_trading_pnl"]),
+                "inventory_mtm_pnl": float(final["unrealized_trading_pnl"]),
                 "funding_pnl": float(final["funding_pnl"]),
                 "fees": float(final["fees"]),
                 "liquidation_adjusted_pnl": final_liquidation_adjusted_equity,
+                "forced_flat_pnl": forced_flat,
+                "liquidation_cost": total_pnl - final_liquidation_adjusted_equity,
+                "final_liquidation_cost": total_pnl - final_liquidation_adjusted_equity,
+                "forced_flat_cost": total_pnl - forced_flat,
                 "total_fills": int(len(fills)),
                 "fill_volume_eth": total_fill_volume,
                 "turnover_usd": turnover,
@@ -176,8 +185,8 @@ def summarize_metrics(
                 "max_drawdown": float(event_max_drawdown_loss) if event_max_drawdown_loss is not None else max_drawdown(equity_curve["equity"]),
                 "sampled_1m_max_drawdown": max_drawdown(equity_curve["equity"]),
                 "sharpe_like_1m": sharpe_like_1m(equity_curve),
-                "pnl_per_turnover": float(final["equity"] / turnover) if turnover else 0.0,
-                "pnl_per_eth": float(final["equity"] / total_fill_volume) if total_fill_volume else 0.0,
+                "pnl_per_turnover": float(total_pnl / turnover) if turnover else 0.0,
+                "pnl_per_eth": float(total_pnl / total_fill_volume) if total_fill_volume else 0.0,
             }
         ]
     )
@@ -201,6 +210,9 @@ def summarize_metrics(
                     "median_fill_size": float(fills["quantity"].median()),
                     "average_fill_notional": float((fills["quantity"] * fills["price"]).mean()),
                     "average_passive_edge_to_mid": float(np.nanmean(passive_edge)),
+                    "pressure_stop_violation_fills": int(fills.get("is_pressure_stop_violation", pd.Series(False, index=fills.index)).fillna(False).sum()),
+                    "average_quote_age_ms": float(fills["quote_age_ms"].dropna().mean()) if "quote_age_ms" in fills.columns and not fills["quote_age_ms"].dropna().empty else 0.0,
+                    "average_book_age_ms": float(fills["book_age_ms"].dropna().mean()) if "book_age_ms" in fills.columns and not fills["book_age_ms"].dropna().empty else 0.0,
                 }
             ]
         )

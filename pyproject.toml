@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "eth-perp-market-maker"
 version = "0.1.0"
 description = "Event-driven ETH perpetual market-making backtest for the take-home assignment."
+readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "matplotlib>=3.8",

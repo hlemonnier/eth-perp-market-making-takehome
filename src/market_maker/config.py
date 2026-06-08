@@ -20,6 +20,10 @@ class ExecutionConfig:
     fill_model: str
     funding_period_hours: float
     report_frequency: str
+    cancel_latency_ms: int | None = None
+    queue_depletion_fraction: float = 0.0
+    force_flat_slippage_bps: float = 0.0
+    stale_book_max_age_ms: float = 1000.0
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,9 @@ class StrategyConfig:
     requote_bbo_ticks: int
     requote_delta_ticks: int
     funding_retarget_threshold: float
+    pressure_markout_ticks: float = 0.0
+    min_edge_ticks: float = 0.0
+    latency_buffer_ticks: float = 0.0
 
 
 @dataclass(frozen=True)
