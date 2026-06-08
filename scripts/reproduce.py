@@ -9,7 +9,7 @@ from pathlib import Path
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the project reproduction workflow.")
-    parser.add_argument("--mode", choices=["smoke", "standard"], default="smoke")
+    parser.add_argument("--mode", choices=["smoke", "core", "full", "standard"], default="smoke")
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--skip-tests", action="store_true")
     return parser.parse_args()
@@ -23,7 +23,8 @@ def run(cmd: list[str], env: dict[str, str]) -> None:
 def main() -> None:
     args = parse_args()
     root = Path(__file__).resolve().parents[1]
-    output_dir = args.output_dir or ("reports/reproduce_smoke" if args.mode == "smoke" else "reports/reproduce")
+    mode = "core" if args.mode == "standard" else args.mode
+    output_dir = args.output_dir or ("reports/reproduce_smoke" if mode == "smoke" else "reports/reproduce")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(root / "src") + os.pathsep + env.get("PYTHONPATH", "")
 
@@ -39,7 +40,7 @@ def main() -> None:
             "--output-dir",
             output_dir,
             "--suite-size",
-            args.mode,
+            mode,
         ],
         env,
     )

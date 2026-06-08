@@ -18,6 +18,7 @@ class AuditResult:
     warnings: list[str] = field(default_factory=list)
     spread_stats: dict[str, float] = field(default_factory=dict)
     depth_stats: dict[str, float] = field(default_factory=dict)
+    event_ordering_stats: dict[str, object] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -28,7 +29,21 @@ def _add(rows: list[dict[str, object]], check: str, severity: str, value: object
     rows.append({"check": check, "severity": severity, "value": value, "detail": detail})
 
 
-def _duplicate_subset(df: pd.DataFrame) -> list[str]:
+def _duplicate_subset(label: str, df: pd.DataFrame) -> list[str]:
+    if label == "orderbook":
+        top_levels = [1, 2, 3]
+        subset = ["datetime"]
+        subset.extend(
+            column
+            for level in top_levels
+            for column in (f"bid_price_{level}", f"bid_qty_{level}", f"ask_price_{level}", f"ask_qty_{level}")
+            if column in df.columns
+        )
+        return subset
+    if label == "trades":
+        return [column for column in ["datetime", "price", "size", "is_maker_ask"] if column in df.columns]
+    if label == "fundings":
+        return [column for column in ["datetime", "funding_rate"] if column in df.columns]
     metadata_cols = {"_source_day", "_row_id"}
     return [column for column in df.columns if column not in metadata_cols]
 
@@ -71,8 +86,8 @@ def run_audit(data: MarketData, config: AuditConfig) -> AuditResult:
         _add(rows, f"{name}_timestamp_order", "error" if disorder else "ok", disorder, "negative timestamp diffs")
         nulls = int(df.drop(columns=[c for c in ["_source_day", "_row_id"] if c in df.columns]).isna().sum().sum())
         _add(rows, f"{name}_missing_values", "warn" if nulls else "ok", nulls, "null cells")
-        dup_rows = int(df.duplicated(subset=_duplicate_subset(df)).sum())
-        _add(rows, f"{name}_duplicate_rows", "warn" if dup_rows else "ok", dup_rows, "exact duplicate rows excluding loader metadata")
+        dup_rows = int(df.duplicated(subset=_duplicate_subset(name, df)).sum())
+        _add(rows, f"{name}_duplicate_rows", "warn" if dup_rows else "ok", dup_rows, "targeted duplicate rows excluding loader metadata")
         dup_times = int(df["datetime"].duplicated().sum())
         dup_time_pct = float(dup_times / len(df) * 100.0) if len(df) else 0.0
         _add(rows, f"{name}_duplicate_timestamps", "warn" if dup_times else "ok", dup_times, f"duplicate timestamps; pct={dup_time_pct:.4f}")
@@ -146,6 +161,15 @@ def run_audit(data: MarketData, config: AuditConfig) -> AuditResult:
         _add(rows, "trade_positive_size", "error" if nonpositive_trade_size else "ok", nonpositive_trade_size, "trade rows with size <= 0")
 
     if not data.trades.empty and not data.orderbook.empty:
+        event_ordering_stats = _event_ordering_sensitivity(data)
+        same_ts_pct = float(event_ordering_stats["trades_with_same_timestamp_book_pct"])
+        _add(
+            rows,
+            "trade_book_same_timestamp_share",
+            "warn" if same_ts_pct > 0.0 else "ok",
+            same_ts_pct,
+            "trades sharing exact timestamps with book updates; default simulator policy processes equal-time trades before books",
+        )
         orderbook_alignment_cols = ["datetime", "bid_price_1", "ask_price_1", "bid_price_20", "ask_price_20"]
         book_for_alignment = data.orderbook[orderbook_alignment_cols].sort_values("datetime").rename(columns={"datetime": "book_datetime"})
         aligned = pd.merge_asof(
@@ -203,9 +227,19 @@ def run_audit(data: MarketData, config: AuditConfig) -> AuditResult:
         outside = int((day_rows["datetime"].dt.date != expected_date).sum())
         _add(rows, f"day_boundary_{day}", "warn" if outside else "ok", outside, "rows outside source date")
 
+    if data.trades.empty or data.orderbook.empty:
+        event_ordering_stats = _empty_event_ordering_sensitivity(data)
+
     summary = pd.DataFrame(rows)
     warnings = summary.loc[summary["severity"] == "warn", "check"].tolist()
-    return AuditResult(tick_size=tick_size, summary=summary, warnings=warnings, spread_stats=spread_stats, depth_stats=depth_stats)
+    return AuditResult(
+        tick_size=tick_size,
+        summary=summary,
+        warnings=warnings,
+        spread_stats=spread_stats,
+        depth_stats=depth_stats,
+        event_ordering_stats=event_ordering_stats,
+    )
 
 
 def write_audit_outputs(result: AuditResult, output_dir: str | Path) -> None:
@@ -214,3 +248,38 @@ def write_audit_outputs(result: AuditResult, output_dir: str | Path) -> None:
     result.summary.to_csv(output / "audit_summary.csv", index=False)
     pd.DataFrame([result.spread_stats]).to_csv(output / "spread_stats.csv", index=False)
     pd.DataFrame([result.depth_stats]).to_csv(output / "depth_stats.csv", index=False)
+    pd.DataFrame([result.event_ordering_stats]).to_csv(output / "event_ordering_sensitivity.csv", index=False)
+
+
+def _empty_event_ordering_sensitivity(data: MarketData) -> dict[str, object]:
+    return {
+        "book_rows": int(len(data.orderbook)),
+        "trade_rows": int(len(data.trades)),
+        "trades_with_same_timestamp_book": 0,
+        "trades_with_same_timestamp_book_pct": 0.0,
+        "book_updates_with_same_timestamp_trade": 0,
+        "book_updates_with_same_timestamp_trade_pct": 0.0,
+        "default_equal_timestamp_policy": "trade_before_book",
+        "sensitivity_policy_to_review": "book_before_trade",
+    }
+
+
+def _event_ordering_sensitivity(data: MarketData) -> dict[str, object]:
+    book_times = data.orderbook["datetime"].drop_duplicates()
+    trade_times = data.trades["datetime"].drop_duplicates()
+    trade_same = data.trades["datetime"].isin(book_times)
+    book_same = data.orderbook["datetime"].isin(trade_times)
+    trade_rows = int(len(data.trades))
+    book_rows = int(len(data.orderbook))
+    same_trade_count = int(trade_same.sum())
+    same_book_count = int(book_same.sum())
+    return {
+        "book_rows": book_rows,
+        "trade_rows": trade_rows,
+        "trades_with_same_timestamp_book": same_trade_count,
+        "trades_with_same_timestamp_book_pct": float(same_trade_count / trade_rows * 100.0) if trade_rows else 0.0,
+        "book_updates_with_same_timestamp_trade": same_book_count,
+        "book_updates_with_same_timestamp_trade_pct": float(same_book_count / book_rows * 100.0) if book_rows else 0.0,
+        "default_equal_timestamp_policy": "trade_before_book",
+        "sensitivity_policy_to_review": "book_before_trade",
+    }

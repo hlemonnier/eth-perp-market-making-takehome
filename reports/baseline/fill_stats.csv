@@ -1,2 +1,2 @@
-fill_count,fill_volume_eth,bid_fills,ask_fills,mean_fill_size,median_fill_size,average_fill_notional,average_passive_edge_to_mid,pressure_stop_violation_fills,average_quote_age_ms,average_book_age_ms
-11,1.2482253124566867,5,6,0.11347502840515333,0.12116509817760662,244.73713823399993,0.022727272727272728,0,3376.4524545454547,47.58045454545454
+fill_count,fill_volume_eth,bid_fills,ask_fills,mean_fill_size,median_fill_size,average_fill_notional,average_passive_edge_to_mid,pressure_stop_violation_fills,pending_cancel_fills,pending_cancel_pressure_fills,live_fills,live_avg_realized_spread_5s,pending_cancel_avg_realized_spread_5s,average_quote_age_ms,average_book_age_ms
+5,0.47648936062129577,2,3,0.09529787212425915,0.08795404714246322,204.9093186337064,0.0,0,1,0,4,0.10000000000013642,-2.300000000000182,2806.2184,82.8248

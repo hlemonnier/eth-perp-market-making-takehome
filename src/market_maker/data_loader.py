@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from market_maker.book_state import LEVELS
@@ -41,16 +42,18 @@ def validate_columns(df: pd.DataFrame, required: list[str], label: str) -> None:
         raise ValueError(f"{label} missing required columns: {missing}")
 
 
-def _load_daily_file(path: Path, required: list[str], label: str, day: str) -> pd.DataFrame:
+def _load_daily_file(path: Path, required: list[str], label: str, day: str, max_rows: int | None = None) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(path)
     df = pd.read_parquet(path)
+    if max_rows is not None:
+        df = df.head(max_rows)
     validate_columns(df, required, str(path))
     df = df.copy()
     df["datetime"] = normalize_datetime(df["datetime"])
     df["_source_day"] = day
-    df["_row_id"] = range(len(df))
-    return df.sort_values(["datetime", "_row_id"], kind="mergesort").reset_index(drop=True)
+    df["_row_id"] = np.arange(len(df))
+    return _sort_market_frame(df)
 
 
 def load_market_data(data_dir: str | Path, days: tuple[str, ...] | list[str]) -> MarketData:
@@ -64,7 +67,47 @@ def load_market_data(data_dir: str | Path, days: tuple[str, ...] | list[str]) ->
         fundings.append(_load_daily_file(root / "fundings" / f"{day}.parquet", FUNDING_COLUMNS, "fundings", day))
 
     return MarketData(
-        orderbook=pd.concat(orderbooks, ignore_index=True).sort_values(["datetime", "_source_day", "_row_id"], kind="mergesort").reset_index(drop=True),
-        trades=pd.concat(trades, ignore_index=True).sort_values(["datetime", "_source_day", "_row_id"], kind="mergesort").reset_index(drop=True),
-        fundings=pd.concat(fundings, ignore_index=True).sort_values(["datetime", "_source_day", "_row_id"], kind="mergesort").reset_index(drop=True),
+        orderbook=_sort_market_frame(pd.concat(orderbooks, ignore_index=True)),
+        trades=_sort_market_frame(pd.concat(trades, ignore_index=True)),
+        fundings=_sort_market_frame(pd.concat(fundings, ignore_index=True)),
     )
+
+
+def load_market_data_sample(
+    data_dir: str | Path,
+    days: tuple[str, ...] | list[str],
+    max_orderbook_rows: int = 50_000,
+) -> MarketData:
+    if not days:
+        raise ValueError("At least one day is required for sample loading.")
+    root = Path(data_dir)
+    day = str(days[0])
+    orderbook = _load_daily_file(root / "orderbook" / f"{day}.parquet", ORDERBOOK_COLUMNS, "orderbook", day, max_rows=max_orderbook_rows)
+    if orderbook.empty:
+        raise ValueError(f"No orderbook rows loaded for smoke sample day {day}.")
+    start = orderbook["datetime"].iloc[0]
+    end = orderbook["datetime"].iloc[-1]
+    trades = _load_daily_file(root / "trades" / f"{day}.parquet", TRADE_COLUMNS, "trades", day)
+    fundings = _load_daily_file(root / "fundings" / f"{day}.parquet", FUNDING_COLUMNS, "fundings", day)
+    trades = trades[(trades["datetime"] >= start) & (trades["datetime"] <= end)].reset_index(drop=True)
+    fundings = fundings[fundings["datetime"] <= end].reset_index(drop=True)
+    if fundings.empty:
+        first_funding = _load_daily_file(root / "fundings" / f"{day}.parquet", FUNDING_COLUMNS, "fundings", day, max_rows=1)
+        fundings = first_funding
+    return MarketData(orderbook=orderbook, trades=trades, fundings=fundings)
+
+
+def _sort_market_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.reset_index(drop=True)
+    if df["datetime"].is_monotonic_increasing:
+        return df.reset_index(drop=True)
+    source_codes = pd.factorize(df["_source_day"], sort=True)[0] if "_source_day" in df.columns else np.zeros(len(df), dtype=int)
+    order = np.lexsort(
+        (
+            df["_row_id"].to_numpy() if "_row_id" in df.columns else np.arange(len(df)),
+            source_codes,
+            df["datetime"].astype("int64").to_numpy(),
+        )
+    )
+    return df.take(order).reset_index(drop=True)

@@ -35,6 +35,7 @@ def write_outputs(
     result.metrics.realized_spread.to_csv(output / "realized_spread.csv", index=False)
     _fill_diagnostic_breakdowns(result.fills).to_csv(output / "fill_diagnostics.csv", index=False)
     _fee_sensitivity(overall=result.metrics.overall).to_csv(output / "fee_sensitivity.csv", index=False)
+    pd.DataFrame([audit.event_ordering_stats]).to_csv(output / "event_ordering_sensitivity.csv", index=False)
     _write_config_snapshot(config, output)
 
     _plot_equity(result.equity_curve, plots / "equity_curve.png")
@@ -86,6 +87,12 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         _markdown_table(audit_issue_rows, max_rows=100),
         "",
+        "### Event Ordering Sensitivity",
+        "",
+        "The simulator processes trades before book updates when timestamps are exactly equal. This table quantifies how much data is exposed to the alternate book-before-trade convention.",
+        "",
+        _markdown_table(pd.DataFrame([audit.event_ordering_stats])),
+        "",
         "### Spread Statistics",
         "",
         _markdown_table(pd.DataFrame([audit.spread_stats])),
@@ -96,7 +103,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "## Strategy",
         "",
-        "Fair value combines mid, microprice, and past-only trade imbalance. Quotes use adaptive half-distance, inventory-skewed reservation price, funding target inventory, book-imbalance adverse-pressure side stops, volatility cooldown, and end-of-day reduce-only behavior. Pressure stops are enforced at simulator level on existing live orders; fills during cancel latency are explicitly flagged.",
+        "Fair value combines mid, microprice, and past-only trade imbalance. Quotes use adaptive half-distance, inventory-skewed reservation price, funding target inventory, fee-aware expected-edge gates, book-imbalance adverse-pressure side stops, volatility cooldown, and end-of-day reduce-only behavior. Pressure and expected-edge stops are enforced at simulator level on existing live orders; fills during cancel latency are explicitly flagged.",
         "",
         "## Results",
         "",
@@ -158,7 +165,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "- `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`",
         "- `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`",
-        "- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`",
+        "- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `fee_sensitivity.csv`, `event_ordering_sensitivity.csv`",
         "- `config_used.yaml`",
         "- `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`",
         "",
@@ -284,7 +291,10 @@ def _safe_mean(values: pd.Series | None) -> float:
 
 def _git_commit() -> str:
     try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+        commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+        dirty_worktree = subprocess.run(["git", "diff", "--quiet"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0
+        dirty_index = subprocess.run(["git", "diff", "--cached", "--quiet"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0
+        return f"{commit}-dirty" if dirty_worktree or dirty_index else commit
     except Exception:
         return "unknown"
 

@@ -9,7 +9,7 @@ import pandas as pd
 
 from market_maker.config import BacktestConfig, load_config
 from market_maker.data_audit import run_audit, write_audit_outputs
-from market_maker.data_loader import load_market_data
+from market_maker.data_loader import load_market_data, load_market_data_sample
 from market_maker.reporting import write_outputs
 from market_maker.simulator import Simulator
 
@@ -27,7 +27,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--funding-target-frac", type=float, default=None, help="Override funding inventory target strength.")
     parser.add_argument("--pressure-stop", type=float, default=None, help="Override adverse-pressure side stop threshold.")
     parser.add_argument("--min-half-spread-ticks", type=int, default=None, help="Override minimum quote half-spread in ticks.")
-    parser.add_argument("--suite-size", choices=["smoke", "standard"], default="standard", help="Robustness/reproduce suite breadth.")
+    parser.add_argument("--suite-size", choices=["smoke", "core", "full", "standard"], default="core", help="Robustness/reproduce suite breadth.")
+    parser.add_argument("--smoke-rows", type=int, default=50_000, help="Orderbook rows to load for smoke/core reproducibility suites.")
     parser.add_argument("--allow-audit-errors", action="store_true", help="Run the backtest even when audit checks fail.")
     return parser.parse_args()
 
@@ -57,7 +58,11 @@ def override_config(config: BacktestConfig, args: argparse.Namespace) -> Backtes
 
 def run_command(args: argparse.Namespace) -> None:
     config = override_config(load_config(args.config), args)
-    market_data = load_market_data(config.data.data_dir, config.data.days)
+    suite_size = _normalize_suite_size(getattr(args, "suite_size", "core"))
+    if args.command in {"robustness", "ablations", "reproduce"} and suite_size in {"smoke", "core"}:
+        market_data = load_market_data_sample(config.data.data_dir, config.data.days, max_orderbook_rows=getattr(args, "smoke_rows", 50_000))
+    else:
+        market_data = load_market_data(config.data.data_dir, config.data.days)
     audit = run_audit(market_data, config.audit)
     output_dir = Path(args.output_dir)
     write_audit_outputs(audit, output_dir)
@@ -70,7 +75,7 @@ def run_command(args: argparse.Namespace) -> None:
         raise SystemExit(f"Audit failed; refusing to run backtest. Review {output_dir / 'audit_summary.csv'} or pass --allow-audit-errors.")
 
     if args.command == "robustness":
-        results = run_robustness_suite(config, market_data, audit, output_dir, suite_size=getattr(args, "suite_size", "standard"))
+        results = run_robustness_suite(config, market_data, audit, output_dir, suite_size=suite_size)
         print(results.to_string(index=False))
         print(f"Robustness suite complete: output_dir={output_dir}")
         return
@@ -82,7 +87,7 @@ def run_command(args: argparse.Namespace) -> None:
         return
 
     if args.command == "reproduce":
-        run_reproduce_suite(config, market_data, audit, output_dir, suite_size=getattr(args, "suite_size", "standard"))
+        run_reproduce_suite(config, market_data, audit, output_dir, suite_size=suite_size)
         print(f"Reproduce suite complete: output_dir={output_dir}")
         return
 
@@ -116,40 +121,46 @@ def run_single_backtest(config: BacktestConfig, market_data, audit, output_dir: 
     return row
 
 
-def run_robustness_suite(config: BacktestConfig, market_data, audit, output_dir: Path, suite_size: str = "standard") -> pd.DataFrame:
+def run_robustness_suite(config: BacktestConfig, market_data, audit, output_dir: Path, suite_size: str = "core") -> pd.DataFrame:
     output_dir.mkdir(parents=True, exist_ok=True)
     if suite_size == "smoke":
-        pressure_values = [config.strategy.pressure_stop]
-        queue_values = [0.0, 0.5]
-        cancel_values = [0, config.execution.cancel_latency_ms if config.execution.cancel_latency_ms is not None else config.execution.latency_ms]
-        fee_values = [config.execution.maker_fee_bps]
-        spread_values = [config.strategy.min_half_spread_ticks]
+        variants = [
+            ("baseline", config),
+            ("simple_fill", replace(config, execution=replace(config.execution, fill_model="simple"))),
+            ("partial_queue_0.50", replace(config, execution=replace(config.execution, fill_model="partial_queue", queue_depletion_fraction=0.50))),
+            ("pressure_filter_off", replace(config, strategy=replace(config.strategy, pressure_stop=999.0, k_adv=0.0))),
+        ]
+    elif suite_size == "core":
+        variants = _core_robustness_variants(config)
     else:
+        variants = []
         pressure_values = [0.25, 0.50, 0.75]
         queue_values = [0.0, 0.25, 0.5, 0.75]
         cancel_values = [0, 100, 250, 500]
         fee_values = [-0.5, 0.0, 0.5, 1.0]
         spread_values = [1, 2, 3]
+        for run_index, (pressure_stop, queue_depletion, cancel_latency, fee, min_ticks) in enumerate(
+            product(pressure_values, queue_values, cancel_values, fee_values, spread_values)
+        ):
+            cfg = replace(
+                config,
+                execution=replace(
+                    config.execution,
+                    fill_model="partial_queue",
+                    queue_depletion_fraction=float(queue_depletion),
+                    cancel_latency_ms=int(cancel_latency),
+                    maker_fee_bps=float(fee),
+                ),
+                strategy=replace(
+                    config.strategy,
+                    pressure_stop=float(pressure_stop),
+                    min_half_spread_ticks=int(min_ticks),
+                ),
+            )
+            variants.append((f"full_grid_{run_index:03d}", cfg))
 
     rows = []
-    for run_index, (pressure_stop, queue_depletion, cancel_latency, fee, min_ticks) in enumerate(
-        product(pressure_values, queue_values, cancel_values, fee_values, spread_values)
-    ):
-        cfg = replace(
-            config,
-            execution=replace(
-                config.execution,
-                fill_model="partial_queue",
-                queue_depletion_fraction=float(queue_depletion),
-                cancel_latency_ms=int(cancel_latency),
-                maker_fee_bps=float(fee),
-            ),
-            strategy=replace(
-                config.strategy,
-                pressure_stop=float(pressure_stop),
-                min_half_spread_ticks=int(min_ticks),
-            ),
-        )
+    for run_index, (variant, cfg) in enumerate(variants):
         result = Simulator(market_data, cfg, audit.tick_size).run()
         row: dict[str, object] = {}
         if not result.metrics.overall.empty:
@@ -157,11 +168,13 @@ def run_robustness_suite(config: BacktestConfig, market_data, audit, output_dir:
         row.update(
             {
                 "run": run_index,
-                "pressure_stop": pressure_stop,
-                "queue_depletion_fraction": queue_depletion,
-                "cancel_latency_ms": cancel_latency,
-                "maker_fee_bps": fee,
-                "min_half_spread_ticks": min_ticks,
+                "variant": variant,
+                "fill_model": cfg.execution.fill_model,
+                "pressure_stop": cfg.strategy.pressure_stop,
+                "queue_depletion_fraction": cfg.execution.queue_depletion_fraction,
+                "cancel_latency_ms": cfg.execution.cancel_latency_ms if cfg.execution.cancel_latency_ms is not None else cfg.execution.latency_ms,
+                "maker_fee_bps": cfg.execution.maker_fee_bps,
+                "min_half_spread_ticks": cfg.strategy.min_half_spread_ticks,
             }
         )
         rows.append(row)
@@ -192,15 +205,16 @@ def run_ablation_suite(config: BacktestConfig, market_data, audit, output_dir: P
     }
     rows = []
     for name, cfg in variants.items():
-        row = run_single_backtest(cfg, market_data, audit, output_dir / name)
+        result = Simulator(market_data, cfg, audit.tick_size).run()
+        row = result.metrics.overall.iloc[0].to_dict() if not result.metrics.overall.empty else {}
         row["variant"] = name
         rows.append(row)
     results = pd.DataFrame(rows)
-    results.to_csv(output_dir / "results.csv", index=False)
+    results.to_csv(output_dir / "ablation_results.csv", index=False)
     return results
 
 
-def run_reproduce_suite(config: BacktestConfig, market_data, audit, output_dir: Path, suite_size: str = "standard") -> None:
+def run_reproduce_suite(config: BacktestConfig, market_data, audit, output_dir: Path, suite_size: str = "core") -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     write_audit_outputs(audit, output_dir / "audit")
     baseline = run_single_backtest(config, market_data, audit, output_dir / "baseline")
@@ -216,8 +230,74 @@ def run_reproduce_suite(config: BacktestConfig, market_data, audit, output_dir: 
         ]
     )
     comparison.to_csv(output_dir / "fill_model_comparison.csv", index=False)
+    run_sensitivity_suites(config, market_data, audit, output_dir)
     run_ablation_suite(config, market_data, audit, output_dir / "ablations")
     run_robustness_suite(config, market_data, audit, output_dir / "robustness", suite_size=suite_size)
+
+
+def run_sensitivity_suites(config: BacktestConfig, market_data, audit, output_dir: Path) -> None:
+    queue_variants = [
+        ("conservative_queue", replace(config, execution=replace(config.execution, fill_model="conservative_queue", queue_depletion_fraction=0.0))),
+        ("partial_queue_0.25", replace(config, execution=replace(config.execution, fill_model="partial_queue", queue_depletion_fraction=0.25))),
+        ("partial_queue_0.50", replace(config, execution=replace(config.execution, fill_model="partial_queue", queue_depletion_fraction=0.50))),
+        ("partial_queue_1.00", replace(config, execution=replace(config.execution, fill_model="partial_queue", queue_depletion_fraction=1.00))),
+        ("simple", replace(config, execution=replace(config.execution, fill_model="simple"))),
+    ]
+    latency_variants = [
+        (f"cancel_latency_{latency_ms}", replace(config, execution=replace(config.execution, cancel_latency_ms=latency_ms)))
+        for latency_ms in (0, 250, 500)
+    ]
+    fee_variants = [
+        (f"fee_{fee_bps:g}bps", replace(config, execution=replace(config.execution, maker_fee_bps=fee_bps)))
+        for fee_bps in (0.0, 0.5, 1.0)
+    ]
+    _write_variant_table(queue_variants, market_data, audit, output_dir / "queue_sensitivity", "queue_sensitivity.csv")
+    _write_variant_table(latency_variants, market_data, audit, output_dir / "latency_sensitivity", "latency_sensitivity.csv")
+    _write_variant_table(fee_variants, market_data, audit, output_dir / "fee_sensitivity", "fee_sensitivity.csv")
+
+
+def _write_variant_table(variants: list[tuple[str, BacktestConfig]], market_data, audit, output_dir: Path, filename: str) -> pd.DataFrame:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for name, cfg in variants:
+        result = Simulator(market_data, cfg, audit.tick_size).run()
+        row = result.metrics.overall.iloc[0].to_dict() if not result.metrics.overall.empty else {}
+        row.update(
+            {
+                "variant": name,
+                "fill_model": cfg.execution.fill_model,
+                "queue_depletion_fraction": cfg.execution.queue_depletion_fraction,
+                "cancel_latency_ms": cfg.execution.cancel_latency_ms if cfg.execution.cancel_latency_ms is not None else cfg.execution.latency_ms,
+                "maker_fee_bps": cfg.execution.maker_fee_bps,
+            }
+        )
+        rows.append(row)
+    table = pd.DataFrame(rows)
+    table.to_csv(output_dir / filename, index=False)
+    return table
+
+
+def _core_robustness_variants(config: BacktestConfig) -> list[tuple[str, BacktestConfig]]:
+    variants: list[tuple[str, BacktestConfig]] = [
+        ("baseline", config),
+        ("simple_fill", replace(config, execution=replace(config.execution, fill_model="simple"))),
+        ("partial_queue_0.25", replace(config, execution=replace(config.execution, fill_model="partial_queue", queue_depletion_fraction=0.25))),
+        ("partial_queue_0.50", replace(config, execution=replace(config.execution, fill_model="partial_queue", queue_depletion_fraction=0.50))),
+    ]
+    variants.extend(
+        (f"cancel_latency_{latency_ms}", replace(config, execution=replace(config.execution, cancel_latency_ms=latency_ms)))
+        for latency_ms in (0, 500)
+    )
+    variants.extend(
+        (f"fee_{fee_bps:g}bps", replace(config, execution=replace(config.execution, maker_fee_bps=fee_bps)))
+        for fee_bps in (0.0, 1.0)
+    )
+    variants.append(("pressure_filter_off", replace(config, strategy=replace(config.strategy, pressure_stop=999.0, k_adv=0.0))))
+    return variants
+
+
+def _normalize_suite_size(value: str) -> str:
+    return "core" if value == "standard" else value
 
 
 def main() -> None:

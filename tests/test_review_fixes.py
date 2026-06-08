@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -13,9 +14,10 @@ from market_maker.config import AuditConfig, BacktestConfig, DataConfig, Executi
 from market_maker.data_audit import AuditResult, run_audit
 from market_maker.data_loader import MarketData
 from market_maker.features import RollingFeatures
-from market_maker.metrics import MetricsBundle, daily_summary, realized_spread_stats, summarize_orders
+from market_maker.metrics import MetricsBundle, daily_summary, realized_spread_stats, summarize_metrics, summarize_orders
 from market_maker.orders import LiveOrder, Side
 from market_maker.reporting import build_markdown_report
+from market_maker.risk import RiskState
 from market_maker.simulator import BacktestResult, Simulator
 from market_maker.strategy import MarketMakingStrategy, ceil_to_tick, floor_to_tick
 
@@ -168,6 +170,60 @@ def test_spread_tick_comparison_uses_rounded_tick_count():
     )
 
     assert decision.reason == "ok"
+
+
+def test_expected_edge_gate_includes_maker_fees():
+    cfg = _config()
+    timestamp = pd.Timestamp("2026-03-19T00:00:00Z")
+    book = _book_state()
+    no_fee_strategy = MarketMakingStrategy(cfg.strategy, cfg.risk, tick_size=1.0, maker_fee_bps=0.0)
+    fee_strategy = MarketMakingStrategy(cfg.strategy, cfg.risk, tick_size=1.0, maker_fee_bps=200.0)
+
+    no_fee_decision = no_fee_strategy.quote(
+        timestamp,
+        book,
+        AccountingState(),
+        RollingFeatures(mid_window_seconds=60),
+        0.0,
+        RiskState(cfg.risk),
+        pd.Timestamp("2026-03-20T00:00:00Z"),
+    )
+    fee_decision = fee_strategy.quote(
+        timestamp,
+        book,
+        AccountingState(),
+        RollingFeatures(mid_window_seconds=60),
+        0.0,
+        RiskState(cfg.risk),
+        pd.Timestamp("2026-03-20T00:00:00Z"),
+    )
+
+    assert no_fee_decision.bid_price is not None
+    assert no_fee_decision.ask_price is not None
+    assert fee_decision.bid_price is None
+    assert fee_decision.ask_price is None
+
+
+def test_simulator_cancels_existing_side_when_expected_edge_turns_negative():
+    timestamp = pd.Timestamp("2026-03-19T00:00:00Z")
+    cfg = _config()
+    cfg = replace(cfg, execution=replace(cfg.execution, maker_fee_bps=200.0))
+    simulator = Simulator(_market_data(orderbook=[_book_row(str(timestamp))], trades=[]), cfg, tick_size=1.0)
+    simulator.book.update_from_row(pd.Series(_book_row(str(timestamp))))
+    simulator.active_orders[Side.BID] = LiveOrder(
+        order_id=1,
+        side=Side.BID,
+        price=99.0,
+        original_quantity=1.0,
+        remaining_quantity=1.0,
+        created_time=timestamp,
+        active_time=timestamp,
+    )
+
+    simulator._enforce_expected_edge(timestamp)
+
+    assert simulator.active_orders[Side.BID] is None
+    assert simulator.order_rows[-1]["reason"] == "expected_edge_bid"
 
 
 def test_eod_reduce_only_does_not_open_or_flip_inventory():
@@ -339,6 +395,98 @@ def test_audit_duplicate_rows_ignore_loader_metadata():
     result = run_audit(_market_data(orderbook=[row0, row1]), _config().audit)
 
     assert _audit_value(result, "orderbook_duplicate_rows") == 1
+
+
+def test_audit_reports_same_timestamp_trade_book_sensitivity():
+    result = run_audit(
+        _market_data(
+            orderbook=[
+                _book_row("2026-03-19T00:00:00Z", row_id=0),
+                _book_row("2026-03-19T00:00:01Z", row_id=1),
+            ],
+            trades=[
+                {
+                    "datetime": pd.Timestamp("2026-03-19T00:00:00Z"),
+                    "price": 99.0,
+                    "size": 1.0,
+                    "is_maker_ask": 0,
+                    "_source_day": "2026-03-19",
+                    "_row_id": 0,
+                },
+                {
+                    "datetime": pd.Timestamp("2026-03-19T00:00:02Z"),
+                    "price": 99.0,
+                    "size": 1.0,
+                    "is_maker_ask": 0,
+                    "_source_day": "2026-03-19",
+                    "_row_id": 1,
+                },
+            ],
+        ),
+        _config().audit,
+    )
+
+    assert _audit_value(result, "trade_book_same_timestamp_share") == pytest.approx(50.0)
+    assert result.event_ordering_stats["trades_with_same_timestamp_book"] == 1
+    assert result.event_ordering_stats["default_equal_timestamp_policy"] == "trade_before_book"
+
+
+def test_metrics_rename_spread_capture_and_surface_pending_cancel_quality():
+    equity = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2026-03-19T00:00:00Z"], utc=True),
+            "equity": [10.0],
+            "realized_trading_pnl": [2.0],
+            "unrealized_trading_pnl": [8.0],
+            "funding_pnl": [0.0],
+            "fees": [0.0],
+            "inventory": [0.0],
+            "mid": [100.0],
+        }
+    )
+    fills = pd.DataFrame(
+        [
+            {
+                "timestamp": pd.Timestamp("2026-03-19T00:00:00Z"),
+                "side": "bid",
+                "price": 99.0,
+                "quantity": 1.0,
+                "mid_at_fill": 100.0,
+                "realized_spread_5s": 0.5,
+                "is_pending_cancel_fill": False,
+                "is_pending_cancel_pressure_fill": False,
+                "is_pressure_stop_violation": False,
+                "quote_age_ms": 100.0,
+                "book_age_ms": 0.0,
+            },
+            {
+                "timestamp": pd.Timestamp("2026-03-19T00:00:01Z"),
+                "side": "ask",
+                "price": 101.0,
+                "quantity": 1.0,
+                "mid_at_fill": 100.0,
+                "realized_spread_5s": -0.25,
+                "is_pending_cancel_fill": True,
+                "is_pending_cancel_pressure_fill": True,
+                "is_pressure_stop_violation": False,
+                "quote_age_ms": 200.0,
+                "book_age_ms": 0.0,
+            },
+        ]
+    )
+
+    metrics = summarize_metrics(equity, fills, pd.DataFrame(), final_liquidation_adjusted_equity=10.0)
+    overall = metrics.overall.iloc[0]
+    fill_stats = metrics.fill_stats.iloc[0]
+
+    assert "realized_roundtrip_pnl" in metrics.overall.columns
+    assert "spread_capture_pnl" not in metrics.overall.columns
+    assert overall["realized_roundtrip_pnl"] == pytest.approx(2.0)
+    assert fill_stats["pending_cancel_fills"] == 1
+    assert fill_stats["pending_cancel_pressure_fills"] == 1
+    assert fill_stats["live_fills"] == 1
+    assert fill_stats["live_avg_realized_spread_5s"] == pytest.approx(0.5)
+    assert fill_stats["pending_cancel_avg_realized_spread_5s"] == pytest.approx(-0.25)
 
 
 def test_audit_rejects_bad_trade_side_and_size():

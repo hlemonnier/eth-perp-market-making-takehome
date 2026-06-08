@@ -9,7 +9,7 @@ from pathlib import Path
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run robustness grid and write CSV outputs.")
-    parser.add_argument("--mode", choices=["smoke", "standard"], default="smoke")
+    parser.add_argument("--mode", choices=["smoke", "core", "full", "standard"], default="core")
     parser.add_argument("--output-dir", default="reports/robustness")
     return parser.parse_args()
 
@@ -19,6 +19,7 @@ def main() -> None:
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(root / "src") + os.pathsep + env.get("PYTHONPATH", "")
+    mode = "core" if args.mode == "standard" else args.mode
     subprocess.run(
         [
             sys.executable,
@@ -28,7 +29,7 @@ def main() -> None:
             "--output-dir",
             args.output_dir,
             "--suite-size",
-            args.mode,
+            mode,
         ],
         check=True,
         env=env,

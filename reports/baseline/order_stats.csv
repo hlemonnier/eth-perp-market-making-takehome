@@ -1,2 +1,2 @@
 placed_orders,filled_orders,cancelled_orders,resized_orders,fill_to_order_ratio,filled_order_ratio,cancel_to_order_ratio,top_cancel_reason,top_cancel_reason_count,average_quote_lifetime_seconds,p95_quote_lifetime_seconds,max_quote_lifetime_seconds,cancelled_before_active_orders,pct_orders_cancelled_before_active
-118041,11,118029,3705,9.318796011555308e-05,9.318796011555308e-05,0.9998983404071466,refresh_reprice,43603,2.896176917519484,10.25,10.25,0,0.0
+110017,5,110011,2345,4.544752174663916e-05,4.544752174663916e-05,0.9999454629739041,refresh_reprice,38271,2.3805616232002613,10.25,10.25,0,0.0

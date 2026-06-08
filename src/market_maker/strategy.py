@@ -46,10 +46,11 @@ def _price_decimals_from_tick(tick: float) -> int:
 
 
 class MarketMakingStrategy:
-    def __init__(self, config: StrategyConfig, risk_config: RiskConfig, tick_size: float):
+    def __init__(self, config: StrategyConfig, risk_config: RiskConfig, tick_size: float, maker_fee_bps: float = 0.0):
         self.config = config
         self.risk_config = risk_config
         self.tick_size = tick_size
+        self.maker_fee_rate = maker_fee_bps / 10_000.0
 
     def quote(
         self,
@@ -96,7 +97,10 @@ class MarketMakingStrategy:
         bid_price = min(floor_to_tick(raw_bid, self.tick_size), book.best_ask - self.tick_size)
         ask_price = max(ceil_to_tick(raw_ask, self.tick_size), book.best_bid + self.tick_size)
         bid_size, ask_size = clip_quote_sizes(account.inventory, q_target, cfg)
-        required_edge = (cfg.min_edge_ticks + cfg.latency_buffer_ticks) * self.tick_size
+        required_edge = (
+            self.maker_fee_rate * book.mid
+            + (cfg.min_edge_ticks + cfg.latency_buffer_ticks + cfg.cancel_latency_buffer_ticks) * self.tick_size
+        )
         if expected_future_mid - bid_price <= required_edge:
             bid_size = 0.0
         if ask_price - expected_future_mid <= required_edge:

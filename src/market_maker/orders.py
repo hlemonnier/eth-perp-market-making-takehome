@@ -34,7 +34,7 @@ class LiveOrder:
     cancel_requested_time: pd.Timestamp | None = None
     cancel_effective_time: pd.Timestamp | None = None
     cancel_reason: str | None = None
-    status: str = "live"
+    status: str = "pending_new"
 
     def __post_init__(self) -> None:
         if self.queue_ahead_initial is None:
@@ -55,6 +55,7 @@ class LiveOrder:
         return self.status
 
     def is_active(self, timestamp: pd.Timestamp) -> bool:
+        self.refresh_state(timestamp)
         if self.remaining_quantity <= 1e-12 or timestamp < self.active_time:
             return False
         if self.status == "live":
@@ -64,12 +65,14 @@ class LiveOrder:
         return False
 
     def state_at(self, timestamp: pd.Timestamp) -> str:
+        if self.status == "pending_new" and timestamp >= self.active_time:
+            return "live"
         if self.status == "live" and timestamp < self.active_time:
             return "pending_new"
         return self.status
 
     def is_open(self) -> bool:
-        return self.status in {"live", "pending_cancel"} and self.remaining_quantity > 1e-12
+        return self.status in {"pending_new", "live", "pending_cancel"} and self.remaining_quantity > 1e-12
 
     def is_cancel_pending(self) -> bool:
         return self.status == "pending_cancel"
@@ -85,6 +88,10 @@ class LiveOrder:
     def complete_cancel(self) -> None:
         if self.status == "pending_cancel":
             self.status = "cancelled"
+
+    def refresh_state(self, timestamp: pd.Timestamp) -> None:
+        if self.status == "pending_new" and timestamp >= self.active_time:
+            self.status = "live"
 
     def reduce(self, quantity: float) -> None:
         self.remaining_quantity = max(0.0, self.remaining_quantity - quantity)

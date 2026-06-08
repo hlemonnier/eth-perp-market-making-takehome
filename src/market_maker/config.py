@@ -53,6 +53,7 @@ class StrategyConfig:
     pressure_markout_ticks: float = 0.0
     min_edge_ticks: float = 0.0
     latency_buffer_ticks: float = 0.0
+    cancel_latency_buffer_ticks: float = 0.0
 
 
 @dataclass(frozen=True)

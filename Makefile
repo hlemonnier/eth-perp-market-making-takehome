@@ -1,13 +1,14 @@
 .PHONY: smoke reproduce robustness test
+PYTHON ?= .venv/bin/python
 
 smoke:
-	python3 scripts/reproduce.py --mode smoke
+	$(PYTHON) scripts/reproduce.py --mode smoke
 
 reproduce:
-	python3 scripts/reproduce.py --mode standard
+	$(PYTHON) scripts/reproduce.py --mode core
 
 robustness:
-	python3 scripts/run_robustness.py --mode standard
+	$(PYTHON) scripts/run_robustness.py --mode core
 
 test:
-	python3 -m pytest -q
+	$(PYTHON) -m pytest -q

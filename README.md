@@ -24,25 +24,25 @@ Reports include mid-marked PnL, liquidation-adjusted PnL, forced-flat PnL, reali
 
 ## Reproduce
 
-Run the bounded workflow:
+Run the bounded smoke workflow. It compiles, tests, and uses the first 50,000 order book rows from the first day so it finishes quickly:
 
 ```bash
 make smoke
 ```
 
-Run the full workflow on the full dataset:
+Run the core workflow. It uses the bounded sample plus robustness, ablation, queue, latency, and fee sensitivity outputs:
 
 ```bash
 make reproduce
 ```
 
-Run only the robustness grid:
+Run only the core robustness grid:
 
 ```bash
-mm-backtest robustness --output-dir reports/robustness
+mm-backtest robustness --suite-size core --output-dir reports/robustness
 ```
 
-The robustness grid writes `grid_results.csv` and a PnL pivot by queue depletion and cancel latency.
+The robustness grid writes `grid_results.csv` and a PnL pivot by queue depletion and cancel latency. `--suite-size full` is available for a much heavier exhaustive grid, but it is not the default submission workflow.
 
 ## Known Limitations
 

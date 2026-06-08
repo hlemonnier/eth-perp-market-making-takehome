@@ -4,15 +4,15 @@ trades_schema,ok,0.0,missing=[]
 fundings_schema,ok,0.0,missing=[]
 orderbook_timestamp_order,ok,0.0,negative timestamp diffs
 orderbook_missing_values,ok,0.0,null cells
-orderbook_duplicate_rows,ok,0.0,exact duplicate rows excluding loader metadata
+orderbook_duplicate_rows,ok,0.0,targeted duplicate rows excluding loader metadata
 orderbook_duplicate_timestamps,ok,0.0,duplicate timestamps; pct=0.0000
 trades_timestamp_order,ok,0.0,negative timestamp diffs
 trades_missing_values,ok,0.0,null cells
-trades_duplicate_rows,ok,0.0,exact duplicate rows excluding loader metadata
+trades_duplicate_rows,ok,0.0,targeted duplicate rows excluding loader metadata
 trades_duplicate_timestamps,warn,21530.0,duplicate timestamps; pct=30.5148
 fundings_timestamp_order,ok,0.0,negative timestamp diffs
 fundings_missing_values,ok,0.0,null cells
-fundings_duplicate_rows,ok,0.0,exact duplicate rows excluding loader metadata
+fundings_duplicate_rows,ok,0.0,targeted duplicate rows excluding loader metadata
 fundings_duplicate_timestamps,ok,0.0,duplicate timestamps; pct=0.0000
 orderbook_bid_monotonicity,ok,0.0,rows with increasing bid levels
 orderbook_ask_monotonicity,ok,0.0,rows with decreasing ask levels
@@ -26,6 +26,7 @@ depth_distribution,ok,33.402,"stats={'bid_depth_1_p50': 33.402, 'ask_depth_1_p50
 trade_price_size_finite,ok,0.0,non-finite trade price or size
 trade_side_values,ok,0.0,"is_maker_ask values outside {0,1}"
 trade_positive_size,ok,0.0,trade rows with size <= 0
+trade_book_same_timestamp_share,warn,13.963376608651284,trades sharing exact timestamps with book updates; default simulator policy processes equal-time trades before books
 trade_book_alignment,warn,579.0,trades not near matching side of BBO
 trade_price_outside_visible_l2,ok,0.0,trades outside visible L2 price range after backward book alignment
 trade_book_alignment_age_ms,warn,33439.860910999996,"backward book alignment age stats={'p50_ms': 27.204994, 'p95_ms': 87.6368175, 'max_ms': 33439.860910999996}"

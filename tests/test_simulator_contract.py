@@ -256,6 +256,7 @@ def test_robustness_command_writes_grid_and_pivot(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli, "load_config", lambda _: cfg)
     monkeypatch.setattr(cli, "load_market_data", lambda *_: data)
+    monkeypatch.setattr(cli, "load_market_data_sample", lambda *_args, **_kwargs: data)
     monkeypatch.setattr(cli, "run_audit", lambda *_: audit)
 
     cli.run_command(
@@ -278,3 +279,47 @@ def test_robustness_command_writes_grid_and_pivot(monkeypatch, tmp_path):
 
     assert (tmp_path / "grid_results.csv").exists()
     assert (tmp_path / "pnl_by_queue_depletion_cancel_latency.csv").exists()
+
+
+def test_partial_queue_depletion_starts_after_order_active_time():
+    timestamp = pd.Timestamp("2026-03-19T00:00:00Z")
+    simulator = Simulator(
+        market_data([book_row(str(timestamp))]),
+        config(fill_model="partial_queue", queue_depletion_fraction=0.5),
+        tick_size=1.0,
+    )
+    assert simulator.book.update_from_row(pd.Series(book_row(str(timestamp))))
+    order = LiveOrder(
+        order_id=1,
+        side=Side.BID,
+        price=99.0,
+        original_quantity=1.0,
+        remaining_quantity=1.0,
+        created_time=timestamp,
+        active_time=timestamp + pd.Timedelta(seconds=1),
+        queue_ahead=10.0,
+        last_visible_queue_ahead=10.0,
+    )
+    simulator.active_orders[Side.BID] = order
+
+    row_before_active = book_row("2026-03-19T00:00:00.500Z", bid_qty_1=6.0)
+    simulator._process_orderbook_values(
+        pd.Timestamp(row_before_active["datetime"]),
+        pd.Series([row_before_active[f"bid_price_{level}"] for level in range(1, 21)]).to_numpy(dtype=float),
+        pd.Series([row_before_active[f"bid_qty_{level}"] for level in range(1, 21)]).to_numpy(dtype=float),
+        pd.Series([row_before_active[f"ask_price_{level}"] for level in range(1, 21)]).to_numpy(dtype=float),
+        pd.Series([row_before_active[f"ask_qty_{level}"] for level in range(1, 21)]).to_numpy(dtype=float),
+    )
+    assert order.queue_ahead == pytest.approx(10.0)
+    assert order.last_visible_queue_ahead == pytest.approx(6.0)
+
+    row_after_active = book_row("2026-03-19T00:00:02Z", bid_qty_1=4.0)
+    simulator._process_orderbook_values(
+        pd.Timestamp(row_after_active["datetime"]),
+        pd.Series([row_after_active[f"bid_price_{level}"] for level in range(1, 21)]).to_numpy(dtype=float),
+        pd.Series([row_after_active[f"bid_qty_{level}"] for level in range(1, 21)]).to_numpy(dtype=float),
+        pd.Series([row_after_active[f"ask_price_{level}"] for level in range(1, 21)]).to_numpy(dtype=float),
+        pd.Series([row_after_active[f"ask_qty_{level}"] for level in range(1, 21)]).to_numpy(dtype=float),
+    )
+
+    assert order.queue_ahead == pytest.approx(9.0)

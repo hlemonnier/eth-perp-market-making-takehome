@@ -1,0 +1,5 @@
+maker_fee_bps,estimated_fees,estimated_total_pnl,estimated_realized_pnl,max_drawdown,fills,turnover_usd,estimated_pnl_per_turnover
+-0.5,-0.0,0.0,0.0,0.0,0,0.0,0.0
+0.0,0.0,0.0,0.0,0.0,0,0.0,0.0
+0.5,0.0,0.0,0.0,0.0,0,0.0,0.0
+1.0,0.0,0.0,0.0,0.0,0,0.0,0.0

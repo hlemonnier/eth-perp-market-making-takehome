@@ -37,7 +37,7 @@ class Simulator:
         self.book = BookState()
         self.features = RollingFeatures(mid_window_seconds=config.strategy.vol_window_seconds)
         self.fill_model = FillModel(config.execution.fill_model, config.execution.queue_depletion_fraction)
-        self.strategy = MarketMakingStrategy(config.strategy, config.risk, tick_size)
+        self.strategy = MarketMakingStrategy(config.strategy, config.risk, tick_size, maker_fee_bps=config.execution.maker_fee_bps)
         self.risk = RiskState(config.risk)
         self.active_orders: dict[Side, LiveOrder | None] = {Side.BID: None, Side.ASK: None}
         self.latest_funding_rate = 0.0
@@ -124,7 +124,7 @@ class Simulator:
         fills = pd.DataFrame(self.fill_rows)
         if not fills.empty:
             fills["timestamp"] = pd.to_datetime(fills["timestamp"], utc=True)
-            fills = _add_fill_markouts(fills, mark_curve)
+            fills = _add_fill_markouts(fills, mark_curve, self.stale_book_max_age_ms)
         else:
             fills = _empty_fills_with_diagnostic_columns()
         orders = pd.DataFrame(self.order_rows)
@@ -168,6 +168,7 @@ class Simulator:
         self.features.update_trade(timestamp, trade.is_maker_ask, trade.size)
         self.quote_state_dirty = True
         self._enforce_pressure_stop(timestamp)
+        self._enforce_expected_edge(timestamp)
 
     def _apply_fill(self, fill: Fill, order_status_at_fill: str | None = None) -> None:
         order = self.active_orders.get(fill.side)
@@ -243,6 +244,7 @@ class Simulator:
                 self._apply_book_queue_depletion(pd.Timestamp(row["datetime"]))
                 self._record_mark(self.book.timestamp)
                 self._enforce_pressure_stop(pd.Timestamp(row["datetime"]))
+                self._enforce_expected_edge(pd.Timestamp(row["datetime"]))
         if self.book.valid:
             self._cancel_crossed_quotes(self.book.timestamp)
 
@@ -263,6 +265,7 @@ class Simulator:
             self._apply_book_queue_depletion(timestamp)
             self._record_mark(timestamp)
             self._enforce_pressure_stop(timestamp)
+            self._enforce_expected_edge(timestamp)
             self._cancel_crossed_quotes(timestamp)
 
     def _process_fundings(self, indices: list[int]) -> None:
@@ -410,6 +413,33 @@ class Simulator:
         if pressure > threshold:
             self._cancel_order(Side.ASK, "pressure_stop_ask", timestamp)
 
+    def _enforce_expected_edge(self, timestamp: pd.Timestamp) -> None:
+        if not self.book.valid or self._book_is_stale(timestamp):
+            return
+        open_quote_sides = [
+            side
+            for side, order in self.active_orders.items()
+            if order is not None and order.status in {"pending_new", "live"} and order.remaining_quantity > 1e-12
+        ]
+        if not open_quote_sides:
+            return
+        decision = self.strategy.quote(
+            timestamp=timestamp,
+            book=self.book,
+            account=self.account,
+            features=self.features,
+            latest_funding_rate=self.latest_funding_rate,
+            risk=self.risk,
+            day_end=self._day_end(timestamp),
+        )
+        if decision.reason != "ok":
+            self._cancel_all(f"expected_edge_{decision.reason}", timestamp)
+            return
+        if Side.BID in open_quote_sides and (decision.bid_price is None or decision.bid_size <= 1e-12):
+            self._cancel_order(Side.BID, "expected_edge_bid", timestamp)
+        if Side.ASK in open_quote_sides and (decision.ask_price is None or decision.ask_size <= 1e-12):
+            self._cancel_order(Side.ASK, "expected_edge_ask", timestamp)
+
     def _is_pressure_stop_violation(self, side: Side, pressure: float) -> bool:
         threshold = self.config.strategy.pressure_stop
         if side is Side.BID:
@@ -418,7 +448,7 @@ class Simulator:
 
     @staticmethod
     def _is_open_order(order: LiveOrder | None) -> bool:
-        return order is not None and order.status in {"live", "pending_cancel"} and order.remaining_quantity > 1e-12
+        return order is not None and order.status in {"pending_new", "live", "pending_cancel"} and order.remaining_quantity > 1e-12
 
     def _book_age_ms(self, timestamp: pd.Timestamp) -> float | None:
         if self.book.timestamp is None:
@@ -445,6 +475,11 @@ class Simulator:
             if not self._is_open_order(order):
                 continue
             current_visible = self.book.queue_ahead(order.side, order.price)
+            if timestamp < order.active_time:
+                order.last_known_book_time = timestamp
+                order.last_visible_queue_ahead = current_visible
+                continue
+            order.refresh_state(timestamp)
             previous_visible = order.last_visible_queue_ahead
             order.last_known_book_time = timestamp
             order.last_visible_queue_ahead = current_visible
@@ -473,7 +508,7 @@ class Simulator:
             if price is None or size <= 1e-12:
                 self._cancel_order(side, "refresh_no_desired_quote", timestamp)
                 continue
-            if existing is not None and existing.status == "live":
+            if existing is not None and existing.status in {"pending_new", "live"}:
                 price_distance_ticks = abs(existing.price - price) / self.tick_size
                 order_age_ns = timestamp.value - existing.created_time.value
                 if price_distance_ticks <= keep_ticks and order_age_ns < self.max_quote_age_ns:
@@ -657,7 +692,7 @@ class Simulator:
 
     def _cap_order_size(self, side: Side, max_size: float, reason: str, timestamp: pd.Timestamp) -> None:
         order = self.active_orders.get(side)
-        if order is None or order.status != "live":
+        if order is None or order.status not in {"pending_new", "live"}:
             return
         if max_size <= 1e-12:
             self._cancel_order(side, reason, timestamp)
@@ -682,9 +717,9 @@ class Simulator:
     def _cancel_crossed_quotes(self, timestamp: pd.Timestamp | None = None) -> None:
         bid = self.active_orders.get(Side.BID)
         ask = self.active_orders.get(Side.ASK)
-        if bid is not None and bid.status == "live" and bid.price >= self.book.best_ask:
+        if bid is not None and bid.status in {"pending_new", "live"} and bid.price >= self.book.best_ask:
             self._cancel_order(Side.BID, "quote_crossed_after_book_update", timestamp)
-        if ask is not None and ask.status == "live" and ask.price <= self.book.best_bid:
+        if ask is not None and ask.status in {"pending_new", "live"} and ask.price <= self.book.best_bid:
             self._cancel_order(Side.ASK, "quote_crossed_after_book_update", timestamp)
 
     def _record(self, timestamp: pd.Timestamp, decision: QuoteDecision | None, equity: float | None, force: bool = False) -> None:
@@ -842,7 +877,7 @@ def _empty_fills_with_diagnostic_columns() -> pd.DataFrame:
     return pd.DataFrame(columns=_FILL_DIAGNOSTIC_COLUMNS)
 
 
-def _add_fill_markouts(fills: pd.DataFrame, mark_curve: pd.DataFrame) -> pd.DataFrame:
+def _add_fill_markouts(fills: pd.DataFrame, mark_curve: pd.DataFrame, max_mark_lag_ms: float | None = None) -> pd.DataFrame:
     for column in _FILL_DIAGNOSTIC_COLUMNS:
         if column not in fills.columns:
             fills[column] = pd.NA
@@ -863,10 +898,13 @@ def _add_fill_markouts(fills: pd.DataFrame, mark_curve: pd.DataFrame) -> pd.Data
         lookup["lookup_time"] = lookup["timestamp"] + delta
         aligned = pd.merge_asof(
             lookup.sort_values("lookup_time"),
-            marks.assign(lookup_time=marks["mark_timestamp"])[["lookup_time", "mid"]].sort_values("lookup_time"),
+            marks.assign(lookup_time=marks["mark_timestamp"])[["lookup_time", "mark_timestamp", "mid"]].sort_values("lookup_time"),
             on="lookup_time",
             direction="forward",
         ).set_index("_fill_row")
+        if max_mark_lag_ms is not None and max_mark_lag_ms > 0:
+            lookup_lag_ms = (aligned["mark_timestamp"] - aligned["lookup_time"]).dt.total_seconds() * 1000.0
+            aligned = aligned[lookup_lag_ms <= max_mark_lag_ms]
         markout = aligned["mid"] - aligned["mid_at_fill"]
         enriched.loc[aligned.index, f"markout_{label}"] = markout
         if label != "250ms":

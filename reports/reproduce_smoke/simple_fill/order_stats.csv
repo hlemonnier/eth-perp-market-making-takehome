@@ -1,0 +1,2 @@
+placed_orders,filled_orders,cancelled_orders,resized_orders,fill_to_order_ratio,filled_order_ratio,cancel_to_order_ratio,top_cancel_reason,top_cancel_reason_count,average_quote_lifetime_seconds,p95_quote_lifetime_seconds,max_quote_lifetime_seconds,cancelled_before_active_orders,pct_orders_cancelled_before_active
+1187,2,1184,20,0.0016849199663016006,0.0016849199663016006,0.9974726200505476,refresh_reprice,409,2.411104695615514,8.941239,10.25,0,0.0

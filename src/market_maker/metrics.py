@@ -167,7 +167,7 @@ def summarize_metrics(
                 "total_pnl": total_pnl,
                 "realized_trading_pnl": float(final["realized_trading_pnl"]),
                 "unrealized_trading_pnl": float(final["unrealized_trading_pnl"]),
-                "spread_capture_pnl": float(final["realized_trading_pnl"]),
+                "realized_roundtrip_pnl": float(final["realized_trading_pnl"]),
                 "inventory_mtm_pnl": float(final["unrealized_trading_pnl"]),
                 "funding_pnl": float(final["funding_pnl"]),
                 "fees": float(final["fees"]),
@@ -199,6 +199,10 @@ def summarize_metrics(
             fills["price"] - fills["mid_at_fill"],
             fills["mid_at_fill"] - fills["price"],
         )
+        pending_cancel_fills = fills.get("is_pending_cancel_fill", pd.Series(False, index=fills.index)).fillna(False).astype(bool)
+        pending_cancel_pressure_fills = fills.get("is_pending_cancel_pressure_fill", pd.Series(False, index=fills.index)).fillna(False).astype(bool)
+        live_fills = ~pending_cancel_fills
+        realized_spread_5s = pd.to_numeric(fills.get("realized_spread_5s", pd.Series(np.nan, index=fills.index)), errors="coerce")
         fill_stats = pd.DataFrame(
             [
                 {
@@ -211,6 +215,11 @@ def summarize_metrics(
                     "average_fill_notional": float((fills["quantity"] * fills["price"]).mean()),
                     "average_passive_edge_to_mid": float(np.nanmean(passive_edge)),
                     "pressure_stop_violation_fills": int(fills.get("is_pressure_stop_violation", pd.Series(False, index=fills.index)).fillna(False).sum()),
+                    "pending_cancel_fills": int(pending_cancel_fills.sum()),
+                    "pending_cancel_pressure_fills": int(pending_cancel_pressure_fills.sum()),
+                    "live_fills": int(live_fills.sum()),
+                    "live_avg_realized_spread_5s": _mean_or_zero(realized_spread_5s[live_fills]),
+                    "pending_cancel_avg_realized_spread_5s": _mean_or_zero(realized_spread_5s[pending_cancel_fills]),
                     "average_quote_age_ms": float(fills["quote_age_ms"].dropna().mean()) if "quote_age_ms" in fills.columns and not fills["quote_age_ms"].dropna().empty else 0.0,
                     "average_book_age_ms": float(fills["book_age_ms"].dropna().mean()) if "book_age_ms" in fills.columns and not fills["book_age_ms"].dropna().empty else 0.0,
                 }
@@ -354,3 +363,10 @@ def summarize_order_cancel_reasons(orders: pd.DataFrame) -> pd.DataFrame:
     )
     grouped["cancelled_before_active_orders"] = grouped["cancelled_before_active_orders"].astype(int)
     return grouped[columns]
+
+
+def _mean_or_zero(values: pd.Series) -> float:
+    clean = pd.to_numeric(values, errors="coerce").dropna()
+    if clean.empty:
+        return 0.0
+    return float(clean.mean())
