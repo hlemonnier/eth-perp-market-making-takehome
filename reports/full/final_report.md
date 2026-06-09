@@ -1,6 +1,6 @@
-# Full-Dataset Evidence Index
+# Full-Dataset Bot Backtest Evidence Index
 
-This root report is an aggregate index for the full three-day dataset artifacts under `reports/full/`. It is not a standalone profitability claim and should not be read as a duplicate of the conservative baseline report.
+This root report is an aggregate index for the full three-day market-making bot backtest artifacts under `reports/full/`. It is not a standalone profitability claim and should not be read as a duplicate of the conservative baseline report.
 
 ## Scope
 
@@ -26,6 +26,6 @@ The ablation core covers all three dataset days using independent day-level runs
 
 The defensible claim is:
 
-> This project builds an event-driven ETH perpetual market-making research framework with realistic order lifecycle, fees, cancel latency, queue assumptions, forced-flat accounting, and fill-level adverse-selection diagnostics. The implemented strategy is not proven deployable; the value is the simulator, diagnostics, and honest research process.
+> This project implements and backtests an event-driven ETH perpetual market-making bot with realistic order lifecycle, fees, cancel latency, queue assumptions, forced-flat accounting, and fill-level adverse-selection diagnostics. The implemented strategy is not proven live-deployable, but the submission satisfies the market-making bot/backtest scope and analyzes the strategy limits honestly.
 
 Do not frame these artifacts as proof of a profitable live ETH perp market-making strategy.

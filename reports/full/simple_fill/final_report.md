@@ -2,7 +2,7 @@
 
 ## Headline
 
-This is a simulator-validation baseline, not evidence of a proven profitable market-making strategy. Conservative fills are sparse, simple/aggressive fills expose adverse selection, and mark-to-market inventory can dominate headline PnL.
+This report backtests the implemented market-making bot over the selected dataset. It is not evidence of a proven live-profitable strategy: conservative fills are sparse, simple/aggressive fills expose adverse selection, and mark-to-market inventory can dominate headline PnL.
 
 ## Assumptions
 
@@ -256,7 +256,7 @@ Realized-spread horizons use event-level book marks computed during the simulati
 
 ## Known Limitations
 
-- The implemented strategy is simple and not proven profitable; use the run as simulator validation and diagnostics, not as evidence of robust market-making edge.
+- The implemented bot strategy is simple and not proven live-deployable; use the run as backtest evidence and diagnostics, not as proof of robust market-making edge.
 - The conservative queue model likely underfills because L2 snapshots and prints do not reveal cancellations ahead of our simulated order; use `partial_queue`/`calibrated_queue` queue-depletion sweeps as robustness checks.
 - The simple fill model is intentionally aggressive and stress-tests adverse selection and inventory-directional risk; positive simple-fill PnL is not alpha evidence when it comes from carrying directional inventory.
 - Order churn remains high relative to fills; fill/order ratios, cancel/order ratios, and cancellation reasons should be read as diagnostics rather than optimized execution policy.
@@ -264,7 +264,7 @@ Realized-spread horizons use event-level book marks computed during the simulati
 
 ## Conclusion
 
-The run finished with mid-marked total PnL `104.9354` USD, forced-flat PnL `104.6769` USD, realized trading PnL `0.6469` USD, unrealized trading PnL `104.7410` USD, and funding PnL `-0.1983` USD. The strategy generated `42` fills and max drawdown `63.0856` USD under the selected fill model. Most reported PnL is mark-to-market inventory PnL, so the result should be treated as inventory-path exposure inside a simulator validation, not proof of robust market-making edge. `39` fills occurred while cancellation was pending, so cancel-latency adverse selection remains a key diagnostic. The run is short `95.39%` of sampled time, so positive PnL may reflect directional inventory exposure.
+The run finished with mid-marked total PnL `104.9354` USD, forced-flat PnL `104.6769` USD, realized trading PnL `0.6469` USD, unrealized trading PnL `104.7410` USD, and funding PnL `-0.1983` USD. The strategy generated `42` fills and max drawdown `63.0856` USD under the selected fill model. Most reported PnL is mark-to-market inventory PnL, so the result should be treated as inventory-path exposure inside the bot backtest, not proof of robust market-making edge. `39` fills occurred while cancellation was pending, so cancel-latency adverse selection remains a key diagnostic. The run is short `95.39%` of sampled time, so positive PnL may reflect directional inventory exposure.
 
 
 ## Output Files

@@ -2,7 +2,7 @@
 
 ## Headline
 
-This is a simulator-validation baseline, not evidence of a proven profitable market-making strategy. Conservative fills are sparse, simple/aggressive fills expose adverse selection, and mark-to-market inventory can dominate headline PnL.
+This report backtests the implemented market-making bot over the selected dataset. It is not evidence of a proven live-profitable strategy: conservative fills are sparse, simple/aggressive fills expose adverse selection, and mark-to-market inventory can dominate headline PnL.
 
 ## Assumptions
 
@@ -196,7 +196,7 @@ _No rows._
 
 ## Known Limitations
 
-- The implemented strategy is simple and not proven profitable; use the run as simulator validation and diagnostics, not as evidence of robust market-making edge.
+- The implemented bot strategy is simple and not proven live-deployable; use the run as backtest evidence and diagnostics, not as proof of robust market-making edge.
 - The conservative queue model likely underfills because L2 snapshots and prints do not reveal cancellations ahead of our simulated order; use `partial_queue`/`calibrated_queue` queue-depletion sweeps as robustness checks.
 - The simple fill model is intentionally aggressive and stress-tests adverse selection and inventory-directional risk; positive simple-fill PnL is not alpha evidence when it comes from carrying directional inventory.
 - Order churn remains high relative to fills; fill/order ratios, cancel/order ratios, and cancellation reasons should be read as diagnostics rather than optimized execution policy.

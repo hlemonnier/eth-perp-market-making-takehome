@@ -48,4 +48,4 @@ This is an aggregate workflow report. Variant-specific backtest reports live und
 
 ## Interpretation
 
-Treat positive PnL as a diagnostic result, not a proven live edge. Sparse fills, negative short-horizon realized spread, high inventory-directional exposure, and partial-queue/fee failures are surfaced in the CSV warning columns when present.
+Treat positive PnL as a backtest result to analyze, not a proven live edge. Sparse fills, negative short-horizon realized spread, high inventory-directional exposure, and partial-queue/fee failures are surfaced in the CSV warning columns when present.

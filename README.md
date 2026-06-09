@@ -1,6 +1,6 @@
-# ETH Perpetual Market-Making Research Framework
+# ETH Perpetual Market-Making Bot Backtest
 
-This project is an event-driven ETH perpetual market-making research framework. It is not framed as proof that a toy strategy is live-tradable. The objective is to show where a top-of-book imbalance strategy survives realistic assumptions, where it fails, and how those assumptions change the result.
+This project implements and backtests an event-driven ETH perpetual market-making bot over three historical trading days. It includes quoting logic, inventory management, funding-rate usage, order placement and cancellation, fill simulation, PnL accounting, and performance/risk analysis. The objective is to evaluate where a top-of-book imbalance strategy survives realistic assumptions, where it fails, and how execution assumptions change the result.
 
 ## Data
 
@@ -32,4 +32,4 @@ mm-backtest backtest --output-dir reports/full/baseline
 
 ## Known Limitations
 
-The strategy remains a research prototype. Passive fill quality is highly sensitive to queue assumptions, cancel latency, and fees. Simple-fill results are an aggressive adverse-selection stress, not a flattering upper bound.
+The bot remains a prototype and is not proven live-deployable. Passive fill quality is highly sensitive to queue assumptions, cancel latency, and fees. Simple-fill results are an aggressive adverse-selection stress, not a flattering upper bound.
