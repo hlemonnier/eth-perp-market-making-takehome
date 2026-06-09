@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from market_maker.config import AuditConfig
-from market_maker.data_audit import run_audit
+from market_maker.data_audit import run_audit, run_audit_by_day
 from market_maker.data_loader import MarketData
 
 
@@ -119,3 +119,33 @@ def test_alignment_age_and_visible_l2_checks_are_reported():
 
     assert check_value(result.summary, "trade_price_outside_visible_l2") == 1
     assert check_severity(result.summary, "trade_book_alignment_age_ms") == "warn"
+
+
+def test_run_audit_by_day_preserves_full_scope_with_day_labels(tmp_path):
+    data_dir = tmp_path / "data"
+    for folder in ["orderbook", "trades", "fundings"]:
+        (data_dir / folder).mkdir(parents=True)
+    for day in ["2026-03-19", "2026-03-20"]:
+        orderbook = pd.DataFrame([orderbook_row(f"{day}T00:00:00Z", source_day=day)])
+        trades = pd.DataFrame(
+            [
+                {
+                    "datetime": pd.Timestamp(f"{day}T00:00:00Z"),
+                    "price": 100.1,
+                    "size": 1.0,
+                    "is_maker_ask": 1,
+                }
+            ]
+        )
+        fundings = pd.DataFrame([{"datetime": pd.Timestamp(f"{day}T00:00:00Z"), "funding_rate": 0.0}])
+        orderbook.to_parquet(data_dir / "orderbook" / f"{day}.parquet", index=False)
+        trades.to_parquet(data_dir / "trades" / f"{day}.parquet", index=False)
+        fundings.to_parquet(data_dir / "fundings" / f"{day}.parquet", index=False)
+
+    result = run_audit_by_day(data_dir, ["2026-03-19", "2026-03-20"], audit_config())
+
+    assert result.passed
+    assert set(result.summary["day"]) == {"2026-03-19", "2026-03-20"}
+    assert result.event_ordering_stats["days_audited"] == 2
+    assert result.event_ordering_stats["book_rows"] == 2
+    assert result.spread_stats["days_audited"] == 2.0

@@ -226,6 +226,28 @@ def test_simulator_cancels_existing_side_when_expected_edge_turns_negative():
     assert simulator.order_rows[-1]["reason"] == "expected_edge_bid"
 
 
+def test_simulator_cancels_existing_bid_when_live_price_fails_expected_edge():
+    timestamp = pd.Timestamp("2026-03-19T00:00:00Z")
+    cfg = _config()
+    cfg = replace(cfg, strategy=replace(cfg.strategy, min_half_spread_ticks=2, min_edge_ticks=1.5))
+    simulator = Simulator(_market_data(orderbook=[_book_row(str(timestamp), bid=95.0, ask=105.0)], trades=[]), cfg, tick_size=1.0)
+    simulator.book.update_from_row(pd.Series(_book_row(str(timestamp), bid=95.0, ask=105.0)))
+    simulator.active_orders[Side.BID] = LiveOrder(
+        order_id=1,
+        side=Side.BID,
+        price=99.0,
+        original_quantity=1.0,
+        remaining_quantity=1.0,
+        created_time=timestamp,
+        active_time=timestamp,
+    )
+
+    simulator._enforce_expected_edge(timestamp)
+
+    assert simulator.active_orders[Side.BID] is None
+    assert simulator.order_rows[-1]["reason"] == "expected_edge_bid_price_stale"
+
+
 def test_eod_reduce_only_does_not_open_or_flip_inventory():
     cfg = _config(eod_reduce_window_minutes=15)
     strategy = MarketMakingStrategy(cfg.strategy, cfg.risk, tick_size=1.0)
@@ -348,6 +370,40 @@ def test_report_uses_actual_fill_model_label():
 
     assert "- Fill model: `simple`." in report
     assert "Official result uses the conservative queue-ahead fill model" not in report
+
+
+def test_comparison_diagnostics_flag_sparse_inventory_directional_negative_markouts():
+    metrics = MetricsBundle(
+        overall=pd.DataFrame(
+            [
+                {
+                    "total_pnl": 100.0,
+                    "realized_trading_pnl": 1.0,
+                    "unrealized_trading_pnl": 99.0,
+                    "total_fills": 5,
+                }
+            ]
+        ),
+        daily=pd.DataFrame(),
+        fill_stats=pd.DataFrame(),
+        order_stats=pd.DataFrame(),
+        inventory_stats=pd.DataFrame([{"pct_long": 0.0, "pct_short": 95.0}]),
+        realized_spread=pd.DataFrame(
+            [
+                {"horizon_seconds": 1, "average_realized_spread": -0.2},
+                {"horizon_seconds": 5, "average_realized_spread": -0.3},
+            ]
+        ),
+    )
+    result = BacktestResult(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), metrics, 0.0)
+
+    diagnostics = cli._comparison_diagnostics(result)
+
+    assert diagnostics["sparse_fill_warning"] is True
+    assert diagnostics["inventory_directional_warning"] is True
+    assert diagnostics["negative_realized_spread_warning"] is True
+    assert diagnostics["comparison_warnings"] == "sparse_fills;inventory_directional_pnl;negative_realized_spread"
+    assert diagnostics["avg_realized_spread_5s"] == pytest.approx(-0.3)
 
 
 def test_volatility_history_updates_only_on_book_mid_updates():
@@ -812,6 +868,7 @@ def test_cli_refuses_backtest_when_audit_has_errors_without_override(monkeypatch
     monkeypatch.setattr(cli, "load_config", lambda _: _config())
     monkeypatch.setattr(cli, "load_market_data", lambda *_: _market_data())
     monkeypatch.setattr(cli, "run_audit", lambda *_: bad_audit)
+    monkeypatch.setattr(cli, "run_audit_by_day", lambda *_: bad_audit)
     monkeypatch.setattr(cli, "write_audit_outputs", lambda *_: None)
     monkeypatch.setattr(cli, "Simulator", lambda *_: pytest.fail("simulator should not run after audit errors"))
 

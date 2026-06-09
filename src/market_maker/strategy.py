@@ -20,6 +20,8 @@ class QuoteDecision:
     ask_size: float
     fair_price: float | None
     reservation_price: float | None
+    expected_future_mid: float | None
+    required_edge: float | None
     half_distance: float | None
     funding_target: float
     pressure: float
@@ -130,6 +132,8 @@ class MarketMakingStrategy:
             ask_size=ask_size,
             fair_price=fair,
             reservation_price=reservation,
+            expected_future_mid=expected_future_mid,
+            required_edge=required_edge,
             half_distance=delta,
             funding_target=q_target,
             pressure=pressure,
@@ -145,6 +149,8 @@ class MarketMakingStrategy:
             ask_size=0.0,
             fair_price=None,
             reservation_price=None,
+            expected_future_mid=None,
+            required_edge=None,
             half_distance=None,
             funding_target=0.0,
             pressure=0.0,

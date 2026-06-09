@@ -18,7 +18,7 @@ This is a simulator-validation baseline, not evidence of a proven profitable mar
 - Forced-flat closing fee: `0.5` bps.
 - Equal-timestamp policy: `trade_before_book` by default; reproduction outputs include an alternate `book_before_trade` policy check.
 - End inventory is reported three ways: mid-marked total PnL, bid/ask liquidation-adjusted PnL, and forced-flat PnL after configured slippage and closing fee.
-- Report provenance: `regenerated-2026-06-08`.
+- Report provenance: `not embedded`.
 
 ## Audit Summary
 
@@ -109,8 +109,8 @@ Fair value combines mid, microprice, and past-only trade imbalance. Quotes use a
 - `unrealized_trading_pnl`: `104.7409630889897`
 - `realized_roundtrip_pnl`: `0.6468657944613234`
 - `inventory_mtm_pnl`: `104.7409630889897`
-- `funding_pnl`: `-0.19827149423776644`
-- `fees`: `0.25417977813271275`
+- `funding_pnl`: `-0.1982714942377664`
+- `fees`: `0.2541797781327127`
 - `liquidation_adjusted_pnl`: `104.88537761108056`
 - `forced_flat_pnl`: `104.67690239933032`
 - `liquidation_cost`: `0.0500000000001819`
@@ -119,13 +119,13 @@ Fair value combines mid, microprice, and past-only trade imbalance. Quotes use a
 - `total_fills`: `42.0`
 - `fill_volume_eth`: `2.3097583507189685`
 - `turnover_usd`: `5083.5955626542545`
-- `max_inventory`: `0.21013686430570033`
+- `max_inventory`: `0.2101368643057003`
 - `min_inventory`: `-1.0`
 - `mean_abs_inventory`: `0.851452258688288`
 - `max_drawdown`: `63.08555043634705`
 - `sampled_1m_max_drawdown`: `57.340261139670474`
 - `sharpe_like_1m`: `0.6592907906021914`
-- `pnl_per_turnover`: `0.020641960265676943`
+- `pnl_per_turnover`: `0.0206419602656769`
 - `pnl_per_eth`: `45.43132296866339`
 
 ## Daily PnL
@@ -139,6 +139,14 @@ Fair value combines mid, microprice, and past-only trade imbalance. Quotes use a
 ## Round-Trip And Holding-Time Diagnostics
 
 Rows pair fills greedily when inventory is reduced by an opposite-side fill. Long holding periods indicate inventory-path PnL rather than clean high-frequency spread economics.
+
+### Round-Trip Concentration Summary
+
+| closed_round_trips | total_roundtrip_pnl | positive_roundtrip_pnl | negative_roundtrip_pnl | top_roundtrip_pnl | top_roundtrip_pnl_share_pct | top_abs_roundtrip_pnl_share_pct | median_holding_seconds | p90_holding_seconds | max_holding_seconds |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 12 | 0.193146 | 2.65919 | -2.46605 | 1.3729 | 51.6283 | 26.787 | 406.61 | 4745.23 | 7085.47 |
+
+### Round-Trip Detail
 
 | entry_time | exit_time | entry_side | exit_side | quantity | entry_price | exit_price | holding_seconds | roundtrip_pnl | exit_order_status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -154,6 +162,18 @@ Rows pair fills greedily when inventory is reduced by an opposite-side fill. Lon
 | 2026-03-19 03:19:20.040285722+00:00 | 2026-03-19 03:19:52.936263370+00:00 | ask | bid | 0.028433 | 2220.6 | 2224.9 | 32.896 | -0.122262 | pending_cancel |
 | 2026-03-19 03:19:20.040285722+00:00 | 2026-03-19 03:20:35.841827148+00:00 | ask | bid | 0.0791303 | 2220.6 | 2222.2 | 75.8015 | -0.126608 | pending_cancel |
 | 2026-03-19 03:19:22.394252038+00:00 | 2026-03-19 03:20:35.841827148+00:00 | ask | bid | 0.0403867 | 2222.8 | 2222.2 | 73.4476 | 0.024232 | pending_cancel |
+
+### Holding-Time Distribution
+
+| holding_time_bucket | round_trips | total_roundtrip_pnl | average_roundtrip_pnl |
+| --- | --- | --- | --- |
+| 0-1m | 1 | -0.122262 | -0.122262 |
+| 1-5m | 5 | -0.301636 | -0.0603271 |
+| 5-30m | 1 | 0.0050773 | 0.0050773 |
+| 30-60m | 2 | -1.3383 | -0.669152 |
+| 1-4h | 3 | 1.95027 | 0.65009 |
+| 4-12h | 0 | 0 |  |
+| 12h+ | 0 | 0 |  |
 
 ## Fill Statistics
 
@@ -189,9 +209,9 @@ Rows pair fills greedily when inventory is reduced by an opposite-side fill. Lon
 
 ## Order Statistics
 
-| placed_orders | filled_orders | cancelled_orders | resized_orders | fill_to_order_ratio | filled_order_ratio | cancel_to_order_ratio | top_cancel_reason | top_cancel_reason_count | average_quote_lifetime_seconds | p95_quote_lifetime_seconds | max_quote_lifetime_seconds | cancelled_before_active_orders | pct_orders_cancelled_before_active |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 24174 | 42 | 24132 | 514 | 0.0017374 | 0.0017374 | 0.998263 | pressure_stop_ask | 10553 | 2.70102 | 10.25 | 10.25 | 0 | 0 |
+| placed_orders | filled_orders | cancelled_orders | resized_orders | fill_to_order_ratio | filled_order_ratio | cancel_to_order_ratio | top_cancel_reason | top_cancel_reason_count | average_quote_lifetime_seconds | p95_quote_lifetime_seconds | max_quote_lifetime_seconds | order_observation_hours | placed_orders_per_hour | cancelled_orders_per_hour | cancelled_before_active_orders | pct_orders_cancelled_before_active |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 24174 | 42 | 24132 | 514 | 0.0017374 | 0.0017374 | 0.998263 | pressure_stop_ask | 10553 | 2.70102 | 10.25 | 10.25 | 49.9197 | 484.257 | 483.416 | 0 | 0 |
 
 ### Order Cancellation Reasons
 
@@ -251,7 +271,7 @@ The run finished with mid-marked total PnL `104.9354` USD, forced-flat PnL `104.
 
 - `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`
 - `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`
-- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`
+- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `round_trip_summary.csv`, `holding_time_distribution.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`
 - Reproduction suite roots also include `fill_model_comparison.csv`, `event_ordering_sensitivity.csv`, and `run_scope.csv`.
 - `config_used.yaml`
 - `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`

@@ -12,7 +12,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["smoke", "core", "full_core", "full", "standard"], default="core")
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--smoke-rows", type=int, default=1_000)
-    parser.add_argument("--sample-rows", type=int, default=50_000)
+    parser.add_argument("--sample-rows", type=int, default=5_000)
     return parser.parse_args()
 
 

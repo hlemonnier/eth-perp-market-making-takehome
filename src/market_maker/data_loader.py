@@ -76,7 +76,7 @@ def load_market_data(data_dir: str | Path, days: tuple[str, ...] | list[str]) ->
 def load_market_data_sample(
     data_dir: str | Path,
     days: tuple[str, ...] | list[str],
-    max_orderbook_rows: int = 50_000,
+    max_orderbook_rows: int = 5_000,
 ) -> MarketData:
     if not days:
         raise ValueError("At least one day is required for sample loading.")

@@ -23,7 +23,7 @@ This is a simulator-validation baseline, not evidence of a proven profitable mar
 ## Audit Summary
 
 - Audit passed: `True`.
-- Warning checks: `trades_duplicate_timestamps, one_tick_spread_share, trade_book_same_timestamp_share, trade_book_alignment`.
+- Warning checks: `trades_duplicate_timestamps, one_tick_spread_share, trade_book_same_timestamp_share`.
 
 ### Audit Check Details
 
@@ -39,7 +39,7 @@ This is a simulator-validation baseline, not evidence of a proven profitable mar
 | trades_timestamp_order | ok | 0 | negative timestamp diffs |
 | trades_missing_values | ok | 0 | null cells |
 | trades_duplicate_rows | ok | 0 | targeted duplicate rows excluding loader metadata |
-| trades_duplicate_timestamps | warn | 324 | duplicate timestamps; pct=34.0336 |
+| trades_duplicate_timestamps | warn | 36 | duplicate timestamps; pct=18.0905 |
 | fundings_timestamp_order | ok | 0 | negative timestamp diffs |
 | fundings_missing_values | ok | 0 | null cells |
 | fundings_duplicate_rows | ok | 0 | targeted duplicate rows excluding loader metadata |
@@ -49,19 +49,19 @@ This is a simulator-validation baseline, not evidence of a proven profitable mar
 | orderbook_negative_quantities | ok | 0 | rows with negative qty |
 | orderbook_locked_or_crossed | ok | 0 | rows with bid >= ask |
 | tick_inference | ok | 0.1 | modal positive price increment |
-| spread_distribution | ok | 0.1 | stats={'tick_size': 0.1, 'spread_min': 0.09999999999990905, 'spread_p05': 0.09999999999990905, 'spread_p50': 0.09999999999990905, 'spread_p95': 0.1000000000003638, 'spread_p99': 0.1000000000003638, 'spread_max': 1.199999999999818, 'spread_ticks_p50': 0.9999999999990905, 'one_tick_or_less_pct': 79.254} |
-| one_tick_spread_share | warn | 79.254 | share of books with spread <= one inferred tick; high values leave little edge after fees/queue |
-| mid_jump_outliers | ok | 10.5 | mid jump ticks p99=1.0000, max=10.5000 |
-| depth_distribution | ok | 34.268 | stats={'bid_depth_1_p50': 34.268, 'ask_depth_1_p50': 34.4695, 'bid_depth_5_p50': 138.35399999999998, 'ask_depth_5_p50': 166.225, 'bid_depth_10_p50': 224.545, 'ask_depth_10_p50': 284.77200000000005, 'bid_depth_20_p50': 677.1329999999999, 'ask_depth_20_p50': 726.169} |
+| spread_distribution | ok | 0.1 | stats={'tick_size': 0.1, 'spread_min': 0.09999999999990905, 'spread_p05': 0.09999999999990905, 'spread_p50': 0.09999999999990905, 'spread_p95': 0.1000000000003638, 'spread_p99': 0.1000000000003638, 'spread_max': 0.40000000000009095, 'spread_ticks_p50': 0.9999999999990905, 'one_tick_or_less_pct': 83.42} |
+| one_tick_spread_share | warn | 83.42 | share of books with spread <= one inferred tick; high values leave little edge after fees/queue |
+| mid_jump_outliers | ok | 7 | mid jump ticks p99=2.0000, max=7.0000 |
+| depth_distribution | ok | 46.076 | stats={'bid_depth_1_p50': 46.076, 'ask_depth_1_p50': 24.845, 'bid_depth_5_p50': 135.723, 'ask_depth_5_p50': 135.7985, 'bid_depth_10_p50': 242.7135, 'ask_depth_10_p50': 259.4605, 'bid_depth_20_p50': 675.2644999999999, 'ask_depth_20_p50': 734.5640000000001} |
 | trade_price_size_finite | ok | 0 | non-finite trade price or size |
 | trade_side_values | ok | 0 | is_maker_ask values outside {0,1} |
 | trade_positive_size | ok | 0 | trade rows with size <= 0 |
-| trade_book_same_timestamp_share | warn | 11.7647 | trades sharing exact timestamps with book updates; default simulator policy processes equal-time trades before books |
-| trade_book_alignment | warn | 4 | trades not near matching side of BBO |
+| trade_book_same_timestamp_share | warn | 13.5678 | trades sharing exact timestamps with book updates; default simulator policy processes equal-time trades before books |
+| trade_book_alignment | ok | 0 | trades not near matching side of BBO |
 | trade_price_outside_visible_l2 | ok | 0 | trades outside visible L2 price range after backward book alignment |
-| trade_book_alignment_age_ms | ok | 217.736 | backward book alignment age stats={'p50_ms': 25.556966, 'p95_ms': 60.67842289999998, 'max_ms': 217.735871} |
+| trade_book_alignment_age_ms | ok | 85.6987 | backward book alignment age stats={'p50_ms': 30.504789000000002, 'p95_ms': 60.6182801, 'max_ms': 85.698662} |
 | funding_rate_finite | ok | 0 | non-finite funding rates |
-| funding_rate_outliers | ok | 0.000137808 | absolute funding p99=0.00012006, max=0.00013781 |
+| funding_rate_outliers | ok | 0.000137808 | absolute funding p99=0.00013526, max=0.00013781 |
 | funding_gaps | ok | 21 | gaps over threshold=0 |
 | day_boundary_2026-03-19 | ok | 0 | rows outside source date |
 
@@ -69,10 +69,9 @@ This is a simulator-validation baseline, not evidence of a proven profitable mar
 
 | check | severity | value | detail |
 | --- | --- | --- | --- |
-| trades_duplicate_timestamps | warn | 324 | duplicate timestamps; pct=34.0336 |
-| one_tick_spread_share | warn | 79.254 | share of books with spread <= one inferred tick; high values leave little edge after fees/queue |
-| trade_book_same_timestamp_share | warn | 11.7647 | trades sharing exact timestamps with book updates; default simulator policy processes equal-time trades before books |
-| trade_book_alignment | warn | 4 | trades not near matching side of BBO |
+| trades_duplicate_timestamps | warn | 36 | duplicate timestamps; pct=18.0905 |
+| one_tick_spread_share | warn | 83.42 | share of books with spread <= one inferred tick; high values leave little edge after fees/queue |
+| trade_book_same_timestamp_share | warn | 13.5678 | trades sharing exact timestamps with book updates; default simulator policy processes equal-time trades before books |
 
 ### Event Ordering Exposure
 
@@ -80,19 +79,19 @@ The default simulator policy processes trades before book updates when timestamp
 
 | book_rows | trade_rows | trades_with_same_timestamp_book | trades_with_same_timestamp_book_pct | book_updates_with_same_timestamp_trade | book_updates_with_same_timestamp_trade_pct | default_equal_timestamp_policy | sensitivity_policy_to_review |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 50000 | 952 | 112 | 11.7647 | 103 | 0.206 | trade_before_book | book_before_trade |
+| 5000 | 199 | 27 | 13.5678 | 27 | 0.54 | trade_before_book | book_before_trade |
 
 ### Spread Statistics
 
 | tick_size | spread_min | spread_p05 | spread_p50 | spread_p95 | spread_p99 | spread_max | spread_ticks_p50 | one_tick_or_less_pct |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.1 | 0.1 | 0.1 | 0.1 | 0.1 | 0.1 | 1.2 | 1 | 79.254 |
+| 0.1 | 0.1 | 0.1 | 0.1 | 0.1 | 0.1 | 0.4 | 1 | 83.42 |
 
 ### Depth Statistics
 
 | bid_depth_1_p50 | ask_depth_1_p50 | bid_depth_5_p50 | ask_depth_5_p50 | bid_depth_10_p50 | ask_depth_10_p50 | bid_depth_20_p50 | ask_depth_20_p50 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 34.268 | 34.4695 | 138.354 | 166.225 | 224.545 | 284.772 | 677.133 | 726.169 |
+| 46.076 | 24.845 | 135.723 | 135.798 | 242.714 | 259.461 | 675.264 | 734.564 |
 
 ## Strategy
 
@@ -100,102 +99,100 @@ Fair value combines mid, microprice, and past-only trade imbalance. Quotes use a
 
 ## Results
 
-- `total_pnl`: `-1.8579935053883425`
+- `total_pnl`: `0.0`
 - `realized_trading_pnl`: `0.0`
-- `unrealized_trading_pnl`: `-1.839337818685721`
+- `unrealized_trading_pnl`: `0.0`
 - `realized_roundtrip_pnl`: `0.0`
-- `inventory_mtm_pnl`: `-1.839337818685721`
-- `funding_pnl`: `-0.0016232375120536348`
-- `fees`: `0.017032449190596592`
-- `liquidation_adjusted_pnl`: `-1.8657251784673783`
-- `forced_flat_pnl`: `-1.899604522894596`
-- `liquidation_cost`: `0.007731673079035772`
-- `final_liquidation_cost`: `0.007731673079035772`
-- `forced_flat_cost`: `0.0416110175062534`
-- `total_fills`: `2.0`
-- `fill_volume_eth`: `0.1546334615792639`
-- `turnover_usd`: `340.6489838119319`
-- `max_inventory`: `0.1546334615792639`
+- `inventory_mtm_pnl`: `0.0`
+- `funding_pnl`: `0.0`
+- `fees`: `0.0`
+- `liquidation_adjusted_pnl`: `0.0`
+- `forced_flat_pnl`: `0.0`
+- `liquidation_cost`: `0.0`
+- `final_liquidation_cost`: `0.0`
+- `forced_flat_cost`: `0.0`
+- `total_fills`: `0.0`
+- `fill_volume_eth`: `0.0`
+- `turnover_usd`: `0.0`
+- `max_inventory`: `0.0`
 - `min_inventory`: `0.0`
-- `mean_abs_inventory`: `0.13080159546461423`
-- `max_drawdown`: `2.1191292590680404`
-- `sampled_1m_max_drawdown`: `1.9335576438538549`
-- `sharpe_like_1m`: `-5.382646864500572`
-- `pnl_per_turnover`: `-0.005454275790278353`
-- `pnl_per_eth`: `-12.01546862116871`
+- `mean_abs_inventory`: `0.0`
+- `max_drawdown`: `0.0`
+- `sampled_1m_max_drawdown`: `-0.0`
+- `sharpe_like_1m`: `0.0`
+- `pnl_per_turnover`: `0.0`
+- `pnl_per_eth`: `0.0`
 
 ## Daily PnL
 
 | date | starting_equity | ending_equity | daily_pnl | daily_realized_trading_pnl | daily_unrealized_trading_pnl_change | daily_funding_pnl | daily_fees | ending_realized_trading_pnl | ending_unrealized_trading_pnl | ending_funding_pnl | ending_fees | bid_fills | ask_fills | bid_volume_eth | ask_volume_eth | average_inventory | max_abs_inventory | max_drawdown | sampled_1m_max_drawdown |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-03-19 | 0 | -1.85799 | -1.85799 | 0 | -1.83934 | -0.00162324 | 0.0170324 | 0 | -1.83934 | -0.00162324 | 0.0170324 | 2 | 0 | 0.154633 | 0 | 0.130802 | 0.154633 | 2.11913 | 1.93356 |
+| 2026-03-19 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | -0 | -0 |
 
 ## Round-Trip And Holding-Time Diagnostics
 
 Rows pair fills greedily when inventory is reduced by an opposite-side fill. Long holding periods indicate inventory-path PnL rather than clean high-frequency spread economics.
 
+### Round-Trip Concentration Summary
+
+| closed_round_trips | total_roundtrip_pnl | positive_roundtrip_pnl | negative_roundtrip_pnl | top_roundtrip_pnl | top_roundtrip_pnl_share_pct | top_abs_roundtrip_pnl_share_pct | median_holding_seconds | p90_holding_seconds | max_holding_seconds |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Round-Trip Detail
+
+_No rows._
+
+### Holding-Time Distribution
+
 _No rows._
 
 ## Fill Statistics
 
-| fill_count | fill_volume_eth | bid_fills | ask_fills | mean_fill_size | median_fill_size | average_fill_notional | average_passive_edge_to_mid | pressure_stop_violation_fills | pending_cancel_fills | pending_cancel_pressure_fills | live_fills | live_avg_realized_spread_5s | pending_cancel_avg_realized_spread_5s | average_quote_age_ms | average_book_age_ms |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2 | 0.154633 | 2 | 0 | 0.0773167 | 0.0773167 | 170.324 | 0.2 | 0 | 2 | 1 | 0 | 0 | -1.4 | 1755.82 | 43.824 |
+_No rows._
 
 ### Fill Diagnostic Breakdowns
 
-| breakdown | bucket | fills | avg_realized_spread_5s | avg_markout_1s | avg_quote_age_ms |
-| --- | --- | --- | --- | --- | --- |
-| side | bid | 2 | -1.4 | -0.7 | 1755.82 |
-| pressure_bucket | (-1.011, -0.75] | 1 | -0.85 | -1.4 | 1167.99 |
-| pressure_bucket | (0.25, 0.5] | 1 | -1.95 | 0 | 2343.66 |
-| quote_age_bucket_ms | 1000-5000 | 2 | -1.4 | -0.7 | 1755.82 |
-| queue_ahead_bucket | 20+ | 2 | -1.4 | -0.7 | 1755.82 |
-| inventory_bucket | flat | 1 | -1.95 | 0 | 2343.66 |
-| inventory_bucket | long_small | 1 | -0.85 | -1.4 | 1167.99 |
-| spread_bucket | <=0.1 | 2 | -1.4 | -0.7 | 1755.82 |
+_No rows._
 
 ## Order Statistics
 
-| placed_orders | filled_orders | cancelled_orders | resized_orders | fill_to_order_ratio | filled_order_ratio | cancel_to_order_ratio | top_cancel_reason | top_cancel_reason_count | average_quote_lifetime_seconds | p95_quote_lifetime_seconds | max_quote_lifetime_seconds | cancelled_before_active_orders | pct_orders_cancelled_before_active |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1187 | 2 | 1184 | 20 | 0.00168492 | 0.00168492 | 0.997473 | refresh_reprice | 409 | 2.4111 | 8.94124 | 10.25 | 0 | 0 |
+| placed_orders | filled_orders | cancelled_orders | resized_orders | fill_to_order_ratio | filled_order_ratio | cancel_to_order_ratio | top_cancel_reason | top_cancel_reason_count | average_quote_lifetime_seconds | p95_quote_lifetime_seconds | max_quote_lifetime_seconds | order_observation_hours | placed_orders_per_hour | cancelled_orders_per_hour | cancelled_before_active_orders | pct_orders_cancelled_before_active |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 148 | 0 | 147 | 3 | 0 | 0 | 0.993243 | refresh_reprice | 56 | 2.28207 | 9.40563 | 10.25 | 0.0875471 | 1690.52 | 1679.1 | 0 | 0 |
 
 ### Order Cancellation Reasons
 
 | reason | cancelled_orders | cancelled_before_active_orders |
 | --- | --- | --- |
-| refresh_reprice | 409 | 0 |
-| pressure_stop_bid | 354 | 0 |
-| expected_edge_ask | 213 | 0 |
-| pressure_stop_ask | 164 | 0 |
-| quote_age_expired | 41 | 0 |
+| refresh_reprice | 56 | 0 |
+| pressure_stop_bid | 36 | 0 |
+| expected_edge_ask | 28 | 0 |
+| pressure_stop_ask | 17 | 0 |
+| quote_age_expired | 6 | 0 |
 | expected_edge_bid | 3 | 0 |
+| expected_edge_ask_price_stale | 1 | 0 |
 
 ## Inventory Statistics
 
 | mean_inventory | mean_abs_inventory | std_inventory | min_inventory | max_inventory | pct_long | pct_short | pct_flat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.130802 | 0.130802 | 0.0511367 | 0 | 0.154633 | 88.8889 | 0 | 11.1111 |
+| 0 | 0 | 0 | 0 | 0 | 0 | 0 | 100 |
 
 ## Realized Spread and Adverse Selection
 
 Realized-spread horizons use event-level book marks computed during the simulation; if those marks are unavailable, the metrics are explicitly labeled as sampled-equity-curve marks. The lookup-lag columns report the delay from each target horizon to the next observed mark.
 
-| horizon_seconds | mark_source | marks_available | average_realized_spread | average_toxicity | median_mark_lookup_lag_ms | max_mark_lookup_lag_ms | max_allowed_mark_lookup_lag_ms |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | event_level_book | 50000 | -0.5 | 0.7 | 35.046 | 41.0643 | 1000 |
-| 5 | event_level_book | 50000 | -1.4 | 1.6 | 17.5705 | 28.7314 | 1000 |
-| 30 | event_level_book | 50000 | -1.95 | 2.15 | 44.4963 | 58.4632 | 1000 |
+_No rows._
 
 ## Maker Fee/Rebate Sensitivity
 
 | maker_fee_bps | estimated_fees | estimated_total_pnl | estimated_realized_pnl | max_drawdown | fills | turnover_usd | estimated_pnl_per_turnover |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| -0.5 | -0.0170324 | -1.82393 | 0.0170324 | 2.11913 | 2 | 340.649 | -0.00535428 |
-| 0 | 0 | -1.84096 | 0 | 2.11913 | 2 | 340.649 | -0.00540428 |
-| 0.5 | 0.0170324 | -1.85799 | -0.0170324 | 2.11913 | 2 | 340.649 | -0.00545428 |
-| 1 | 0.0340649 | -1.87503 | -0.0340649 | 2.11913 | 2 | 340.649 | -0.00550428 |
+| -0.5 | -0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 0.5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ## Known Limitations
 
@@ -207,14 +204,14 @@ Realized-spread horizons use event-level book marks computed during the simulati
 
 ## Conclusion
 
-The run finished with mid-marked total PnL `-1.8580` USD, forced-flat PnL `-1.8996` USD, realized trading PnL `0.0000` USD, unrealized trading PnL `-1.8393` USD, and funding PnL `-0.0016` USD. The strategy generated `2` fills and max drawdown `2.1191` USD under the selected fill model. Fill count is sparse and too small to support a statistically meaningful performance claim. Most reported PnL is mark-to-market inventory PnL, so the result should be treated as inventory-path exposure inside a simulator validation, not proof of robust market-making edge. `2` fills occurred while cancellation was pending, so cancel-latency adverse selection remains a key diagnostic. Realized trading PnL is not positive, so adverse selection and quote placement need further work before calling the strategy profitable.
+The run finished with mid-marked total PnL `0.0000` USD, forced-flat PnL `0.0000` USD, realized trading PnL `0.0000` USD, unrealized trading PnL `0.0000` USD, and funding PnL `0.0000` USD. The strategy generated `0` fills and max drawdown `0.0000` USD under the selected fill model. Fill count is sparse and too small to support a statistically meaningful performance claim. Realized trading PnL is not positive, so adverse selection and quote placement need further work before calling the strategy profitable.
 
 
 ## Output Files
 
 - `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`
 - `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`
-- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`
+- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `round_trip_summary.csv`, `holding_time_distribution.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`
 - Reproduction suite roots also include `fill_model_comparison.csv`, `event_ordering_sensitivity.csv`, and `run_scope.csv`.
 - `config_used.yaml`
 - `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`

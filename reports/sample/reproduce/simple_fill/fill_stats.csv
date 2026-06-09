@@ -1,2 +1,1 @@
-fill_count,fill_volume_eth,bid_fills,ask_fills,mean_fill_size,median_fill_size,average_fill_notional,average_passive_edge_to_mid,pressure_stop_violation_fills,pending_cancel_fills,pending_cancel_pressure_fills,live_fills,live_avg_realized_spread_5s,pending_cancel_avg_realized_spread_5s,average_quote_age_ms,average_book_age_ms
-2,0.1546334615792639,2,0,0.07731673078963194,0.07731673078963194,170.32449190596594,0.1999999999998181,0,2,1,0,0.0,-1.400000000000091,1755.8245,43.824
+

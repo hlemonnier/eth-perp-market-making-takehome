@@ -5,10 +5,10 @@ smoke:
 	$(PYTHON) scripts/reproduce.py --mode smoke
 
 reproduce:
-	$(PYTHON) scripts/reproduce.py --mode core
+	$(PYTHON) scripts/reproduce.py --mode core --sample-rows 5000
 
 robustness:
-	$(PYTHON) scripts/run_robustness.py --mode core
+	$(PYTHON) scripts/run_robustness.py --mode core --sample-rows 5000
 
 full-robustness:
 	$(PYTHON) scripts/run_robustness.py --mode full_core --output-dir reports/full/robustness_core

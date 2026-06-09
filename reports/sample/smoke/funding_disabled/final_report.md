@@ -133,6 +133,18 @@ Fair value combines mid, microprice, and past-only trade imbalance. Quotes use a
 
 Rows pair fills greedily when inventory is reduced by an opposite-side fill. Long holding periods indicate inventory-path PnL rather than clean high-frequency spread economics.
 
+### Round-Trip Concentration Summary
+
+| closed_round_trips | total_roundtrip_pnl | positive_roundtrip_pnl | negative_roundtrip_pnl | top_roundtrip_pnl | top_roundtrip_pnl_share_pct | top_abs_roundtrip_pnl_share_pct | median_holding_seconds | p90_holding_seconds | max_holding_seconds |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Round-Trip Detail
+
+_No rows._
+
+### Holding-Time Distribution
+
 _No rows._
 
 ## Fill Statistics
@@ -145,9 +157,9 @@ _No rows._
 
 ## Order Statistics
 
-| placed_orders | filled_orders | cancelled_orders | resized_orders | fill_to_order_ratio | filled_order_ratio | cancel_to_order_ratio | top_cancel_reason | top_cancel_reason_count | average_quote_lifetime_seconds | p95_quote_lifetime_seconds | max_quote_lifetime_seconds | cancelled_before_active_orders | pct_orders_cancelled_before_active |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 32 | 0 | 30 | 0 | 0 | 0 | 0.9375 | expected_edge_bid | 7 | 1.97205 | 5.69369 | 7.14944 | 0 | 0 |
+| placed_orders | filled_orders | cancelled_orders | resized_orders | fill_to_order_ratio | filled_order_ratio | cancel_to_order_ratio | top_cancel_reason | top_cancel_reason_count | average_quote_lifetime_seconds | p95_quote_lifetime_seconds | max_quote_lifetime_seconds | order_observation_hours | placed_orders_per_hour | cancelled_orders_per_hour | cancelled_before_active_orders | pct_orders_cancelled_before_active |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 31 | 0 | 29 | 0 | 0 | 0 | 0.935484 | expected_edge_bid | 7 | 2.02604 | 5.82361 | 7.14944 | 0.0158563 | 1955.06 | 1828.93 | 0 | 0 |
 
 ### Order Cancellation Reasons
 
@@ -156,8 +168,9 @@ _No rows._
 | expected_edge_bid | 7 | 0 |
 | refresh_reprice | 7 | 0 |
 | expected_edge_ask | 6 | 0 |
-| pressure_stop_bid | 6 | 0 |
 | pressure_stop_ask | 4 | 0 |
+| expected_edge_bid_price_stale | 3 | 0 |
+| pressure_stop_bid | 2 | 0 |
 
 ## Inventory Statistics
 
@@ -197,7 +210,7 @@ The run finished with mid-marked total PnL `0.0000` USD, forced-flat PnL `0.0000
 
 - `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`
 - `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`
-- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`
+- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `round_trip_summary.csv`, `holding_time_distribution.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`
 - Reproduction suite roots also include `fill_model_comparison.csv`, `event_ordering_sensitivity.csv`, and `run_scope.csv`.
 - `config_used.yaml`
 - `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`

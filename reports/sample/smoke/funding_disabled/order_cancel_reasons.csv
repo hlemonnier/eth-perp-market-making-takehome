@@ -2,5 +2,6 @@ reason,cancelled_orders,cancelled_before_active_orders
 expected_edge_bid,7,0
 refresh_reprice,7,0
 expected_edge_ask,6,0
-pressure_stop_bid,6,0
 pressure_stop_ask,4,0
+expected_edge_bid_price_stale,3,0
+pressure_stop_bid,2,0

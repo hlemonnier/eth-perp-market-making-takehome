@@ -283,6 +283,9 @@ def summarize_orders(orders: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFrame:
                     "average_quote_lifetime_seconds": 0.0,
                     "p95_quote_lifetime_seconds": 0.0,
                     "max_quote_lifetime_seconds": 0.0,
+                    "order_observation_hours": 0.0,
+                    "placed_orders_per_hour": 0.0,
+                    "cancelled_orders_per_hour": 0.0,
                     "cancelled_before_active_orders": 0,
                     "pct_orders_cancelled_before_active": 0.0,
                 }
@@ -303,6 +306,7 @@ def summarize_orders(orders: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFrame:
 
     lifetimes: list[float] = []
     cancelled_before_active = 0
+    observation_hours = 0.0
     if not placed.empty:
         placed_by_id = placed.drop_duplicates("order_id").set_index("order_id")
         terminal_times: dict[object, pd.Timestamp] = {}
@@ -322,6 +326,12 @@ def summarize_orders(orders: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFrame:
                 continue
             created = pd.Timestamp(placed_by_id.loc[order_id, "timestamp"])
             lifetimes.append(max(0.0, (terminal_at - created).total_seconds()))
+
+        order_times = pd.to_datetime(orders["timestamp"], utc=True, errors="coerce").dropna()
+        if len(order_times) >= 2:
+            observation_hours = max(0.0, (order_times.max() - order_times.min()).total_seconds() / 3600.0)
+        if observation_hours <= 0.0 and lifetimes:
+            observation_hours = max(lifetimes) / 3600.0
 
         for _, cancel in cancelled.iterrows():
             order_id = cancel["order_id"]
@@ -347,6 +357,9 @@ def summarize_orders(orders: pd.DataFrame, fills: pd.DataFrame) -> pd.DataFrame:
                 "average_quote_lifetime_seconds": float(np.mean(lifetimes)) if lifetimes else 0.0,
                 "p95_quote_lifetime_seconds": float(np.percentile(lifetimes, 95)) if lifetimes else 0.0,
                 "max_quote_lifetime_seconds": float(np.max(lifetimes)) if lifetimes else 0.0,
+                "order_observation_hours": float(observation_hours),
+                "placed_orders_per_hour": float(len(placed) / observation_hours) if observation_hours > 0 else 0.0,
+                "cancelled_orders_per_hour": float(len(cancelled) / observation_hours) if observation_hours > 0 else 0.0,
                 "cancelled_before_active_orders": int(cancelled_before_active),
                 "pct_orders_cancelled_before_active": float(cancelled_before_active / len(cancelled) * 100.0) if len(cancelled) else 0.0,
             }

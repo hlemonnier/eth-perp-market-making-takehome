@@ -1,0 +1,6 @@
+total_pnl,realized_trading_pnl,unrealized_trading_pnl,realized_roundtrip_pnl,inventory_mtm_pnl,funding_pnl,fees,liquidation_adjusted_pnl,forced_flat_pnl,liquidation_cost,final_liquidation_cost,forced_flat_cost,total_fills,fill_volume_eth,turnover_usd,max_inventory,min_inventory,mean_abs_inventory,max_drawdown,sampled_1m_max_drawdown,sharpe_like_1m,pnl_per_turnover,pnl_per_eth,variant,dataset_scope
+0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.0,0.0,0.0,0.0,full,sample_5000_rows
+0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.0,0.0,0.0,0.0,no_pressure_filter,sample_5000_rows
+0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.0,0.0,0.0,0.0,no_microprice_alpha,sample_5000_rows
+0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.0,0.0,0.0,0.0,no_inventory_skew,sample_5000_rows
+0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.0,0.0,0.0,0.0,no_funding_target,sample_5000_rows

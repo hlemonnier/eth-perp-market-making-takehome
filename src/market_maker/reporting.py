@@ -21,7 +21,7 @@ def write_outputs(
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     plots = output / "plots"
-    plots.mkdir(exist_ok=True)
+    plots.mkdir(parents=True, exist_ok=True)
 
     result.equity_curve.to_csv(output / "equity_curve.csv", index=False)
     result.fills.to_csv(output / "fills.csv", index=False)
@@ -34,7 +34,10 @@ def write_outputs(
     result.metrics.inventory_stats.to_csv(output / "inventory_stats.csv", index=False)
     result.metrics.realized_spread.to_csv(output / "realized_spread.csv", index=False)
     _fill_diagnostic_breakdowns(result.fills).to_csv(output / "fill_diagnostics.csv", index=False)
-    _round_trip_diagnostics(result.fills).to_csv(output / "round_trips.csv", index=False)
+    round_trips = round_trip_diagnostics(result.fills)
+    round_trips.to_csv(output / "round_trips.csv", index=False)
+    round_trip_summary(round_trips).to_csv(output / "round_trip_summary.csv", index=False)
+    holding_time_distribution(round_trips).to_csv(output / "holding_time_distribution.csv", index=False)
     _fee_sensitivity(overall=result.metrics.overall).to_csv(output / "fee_sensitivity.csv", index=False)
     pd.DataFrame([audit.event_ordering_stats]).to_csv(output / "event_ordering_exposure.csv", index=False)
     _write_config_snapshot(config, output)
@@ -46,6 +49,7 @@ def write_outputs(
     _plot_fills(result.equity_curve, result.fills, plots / "fills_on_mid.png")
 
     report = build_markdown_report(result, audit, config)
+    output.mkdir(parents=True, exist_ok=True)
     (output / "final_report.md").write_text(report)
 
 
@@ -54,7 +58,8 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
     interpretation = _interpretation(overall, result.metrics.realized_spread, result.metrics.fill_stats, result.metrics.inventory_stats)
     report_provenance = _report_provenance()
     audit_issue_rows = audit.summary.loc[audit.summary["severity"] != "ok"].copy()
-    round_trips = _round_trip_diagnostics(result.fills)
+    round_trips = round_trip_diagnostics(result.fills)
+    round_trip_stats = round_trip_summary(round_trips)
     lines = [
         "# ETH Perpetual Market-Making Backtest",
         "",
@@ -127,7 +132,17 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "Rows pair fills greedily when inventory is reduced by an opposite-side fill. Long holding periods indicate inventory-path PnL rather than clean high-frequency spread economics.",
         "",
+        "### Round-Trip Concentration Summary",
+        "",
+        _markdown_table(round_trip_stats),
+        "",
+        "### Round-Trip Detail",
+        "",
         _markdown_table(round_trips, max_rows=20),
+        "",
+        "### Holding-Time Distribution",
+        "",
+        _markdown_table(holding_time_distribution(round_trips)),
         "",
         "## Fill Statistics",
         "",
@@ -176,7 +191,7 @@ def build_markdown_report(result: BacktestResult, audit: AuditResult, config: Ba
         "",
         "- `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`",
         "- `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`",
-        "- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`",
+        "- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `round_trip_summary.csv`, `holding_time_distribution.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`",
         "- Reproduction suite roots also include `fill_model_comparison.csv`, `event_ordering_sensitivity.csv`, and `run_scope.csv`.",
         "- `config_used.yaml`",
         "- `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`",
@@ -286,7 +301,7 @@ def _fill_diagnostic_breakdowns(fills: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
-def _round_trip_diagnostics(fills: pd.DataFrame) -> pd.DataFrame:
+def round_trip_diagnostics(fills: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "entry_time",
         "exit_time",
@@ -345,6 +360,75 @@ def _round_trip_diagnostics(fills: pd.DataFrame) -> pd.DataFrame:
                 }
             )
     return pd.DataFrame(rows, columns=columns)
+
+
+def round_trip_summary(round_trips: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "closed_round_trips",
+        "total_roundtrip_pnl",
+        "positive_roundtrip_pnl",
+        "negative_roundtrip_pnl",
+        "top_roundtrip_pnl",
+        "top_roundtrip_pnl_share_pct",
+        "top_abs_roundtrip_pnl_share_pct",
+        "median_holding_seconds",
+        "p90_holding_seconds",
+        "max_holding_seconds",
+    ]
+    if round_trips.empty or "roundtrip_pnl" not in round_trips.columns:
+        return pd.DataFrame([{column: 0.0 for column in columns}])
+    pnl = pd.to_numeric(round_trips["roundtrip_pnl"], errors="coerce").dropna()
+    holding = pd.to_numeric(round_trips.get("holding_seconds", pd.Series(dtype=float)), errors="coerce").dropna()
+    if pnl.empty:
+        return pd.DataFrame([{column: 0.0 for column in columns}])
+    positive_pnl = pnl[pnl > 0].sum()
+    negative_pnl = pnl[pnl < 0].sum()
+    total_pnl = pnl.sum()
+    top_pnl = pnl.max()
+    abs_sum = pnl.abs().sum()
+    top_abs_share = pnl.abs().max() / abs_sum * 100.0 if abs_sum else 0.0
+    top_share = top_pnl / positive_pnl * 100.0 if positive_pnl > 0 else 0.0
+    return pd.DataFrame(
+        [
+            {
+                "closed_round_trips": int(len(pnl)),
+                "total_roundtrip_pnl": float(total_pnl),
+                "positive_roundtrip_pnl": float(positive_pnl),
+                "negative_roundtrip_pnl": float(negative_pnl),
+                "top_roundtrip_pnl": float(top_pnl),
+                "top_roundtrip_pnl_share_pct": float(top_share),
+                "top_abs_roundtrip_pnl_share_pct": float(top_abs_share),
+                "median_holding_seconds": float(holding.median()) if not holding.empty else 0.0,
+                "p90_holding_seconds": float(holding.quantile(0.90)) if not holding.empty else 0.0,
+                "max_holding_seconds": float(holding.max()) if not holding.empty else 0.0,
+            }
+        ],
+        columns=columns,
+    )
+
+
+def holding_time_distribution(round_trips: pd.DataFrame) -> pd.DataFrame:
+    columns = ["holding_time_bucket", "round_trips", "total_roundtrip_pnl", "average_roundtrip_pnl"]
+    if round_trips.empty or "holding_seconds" not in round_trips.columns:
+        return pd.DataFrame(columns=columns)
+    table = round_trips.copy()
+    table["holding_seconds"] = pd.to_numeric(table["holding_seconds"], errors="coerce")
+    table["roundtrip_pnl"] = pd.to_numeric(table.get("roundtrip_pnl", 0.0), errors="coerce").fillna(0.0)
+    table = table.dropna(subset=["holding_seconds"])
+    if table.empty:
+        return pd.DataFrame(columns=columns)
+    table["holding_time_bucket"] = pd.cut(
+        table["holding_seconds"],
+        bins=[-0.1, 60, 300, 1800, 3600, 14_400, 43_200, float("inf")],
+        labels=["0-1m", "1-5m", "5-30m", "30-60m", "1-4h", "4-12h", "12h+"],
+    )
+    grouped = (
+        table.groupby("holding_time_bucket", observed=False)
+        .agg(round_trips=("roundtrip_pnl", "count"), total_roundtrip_pnl=("roundtrip_pnl", "sum"), average_roundtrip_pnl=("roundtrip_pnl", "mean"))
+        .reset_index()
+    )
+    grouped["holding_time_bucket"] = grouped["holding_time_bucket"].astype(str)
+    return grouped[columns]
 
 
 def _numeric_series(df: pd.DataFrame, column: str) -> pd.Series:

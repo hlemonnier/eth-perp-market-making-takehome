@@ -301,6 +301,8 @@ class Simulator:
                 ask_size=0.0,
                 fair_price=None,
                 reservation_price=None,
+                expected_future_mid=None,
+                required_edge=None,
                 half_distance=None,
                 funding_target=0.0,
                 pressure=self._current_pressure(),
@@ -325,6 +327,8 @@ class Simulator:
                 ask_size=0.0,
                 fair_price=None,
                 reservation_price=None,
+                expected_future_mid=None,
+                required_edge=None,
                 half_distance=None,
                 funding_target=0.0,
                 pressure=0.0,
@@ -450,10 +454,28 @@ class Simulator:
         if decision.reason != "ok":
             self._cancel_all(f"expected_edge_{decision.reason}", timestamp)
             return
-        if Side.BID in open_quote_sides and (decision.bid_price is None or decision.bid_size <= 1e-12):
-            self._cancel_order(Side.BID, "expected_edge_bid", timestamp)
-        if Side.ASK in open_quote_sides and (decision.ask_price is None or decision.ask_size <= 1e-12):
-            self._cancel_order(Side.ASK, "expected_edge_ask", timestamp)
+        if Side.BID in open_quote_sides:
+            bid_order = self.active_orders.get(Side.BID)
+            if decision.bid_price is None or decision.bid_size <= 1e-12:
+                self._cancel_order(Side.BID, "expected_edge_bid", timestamp)
+            elif (
+                bid_order is not None
+                and decision.expected_future_mid is not None
+                and decision.required_edge is not None
+                and decision.expected_future_mid - bid_order.price <= decision.required_edge
+            ):
+                self._cancel_order(Side.BID, "expected_edge_bid_price_stale", timestamp)
+        if Side.ASK in open_quote_sides:
+            ask_order = self.active_orders.get(Side.ASK)
+            if decision.ask_price is None or decision.ask_size <= 1e-12:
+                self._cancel_order(Side.ASK, "expected_edge_ask", timestamp)
+            elif (
+                ask_order is not None
+                and decision.expected_future_mid is not None
+                and decision.required_edge is not None
+                and ask_order.price - decision.expected_future_mid <= decision.required_edge
+            ):
+                self._cancel_order(Side.ASK, "expected_edge_ask_price_stale", timestamp)
 
     def _is_pressure_stop_violation(self, side: Side, pressure: float) -> bool:
         threshold = self.config.strategy.pressure_stop

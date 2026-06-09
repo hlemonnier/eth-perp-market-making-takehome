@@ -18,7 +18,7 @@ This is a simulator-validation baseline, not evidence of a proven profitable mar
 - Forced-flat closing fee: `0.5` bps.
 - Equal-timestamp policy: `trade_before_book` by default; reproduction outputs include an alternate `book_before_trade` policy check.
 - End inventory is reported three ways: mid-marked total PnL, bid/ask liquidation-adjusted PnL, and forced-flat PnL after configured slippage and closing fee.
-- Report provenance: `regenerated-2026-06-08`.
+- Report provenance: `not embedded`.
 
 ## Audit Summary
 
@@ -109,23 +109,23 @@ Fair value combines mid, microprice, and past-only trade imbalance. Quotes use a
 - `unrealized_trading_pnl`: `2.6107889812081213`
 - `realized_roundtrip_pnl`: `10.644974518457538`
 - `inventory_mtm_pnl`: `2.6107889812081213`
-- `funding_pnl`: `-0.028620796103210378`
+- `funding_pnl`: `-0.0286207961032103`
 - `fees`: `0.0512273296584266`
-- `liquidation_adjusted_pnl`: `13.173689637347103`
+- `liquidation_adjusted_pnl`: `13.173689637347104`
 - `forced_flat_pnl`: `13.164409419347235`
-- `liquidation_cost`: `0.00222573655688052`
-- `final_liquidation_cost`: `0.00222573655688052`
-- `forced_flat_cost`: `0.011505954556747966`
+- `liquidation_cost`: `0.0022257365568805`
+- `final_liquidation_cost`: `0.0022257365568805`
+- `forced_flat_cost`: `0.0115059545567479`
 - `total_fills`: `5.0`
-- `fill_volume_eth`: `0.47648936062129577`
+- `fill_volume_eth`: `0.4764893606212957`
 - `turnover_usd`: `1024.546593168532`
 - `max_inventory`: `0.1280332675994882`
-- `min_inventory`: `-0.08795404714246322`
-- `mean_abs_inventory`: `0.04975980534955162`
+- `min_inventory`: `-0.0879540471424632`
+- `mean_abs_inventory`: `0.0497598053495516`
 - `max_drawdown`: `4.328587924394561`
 - `sampled_1m_max_drawdown`: `4.1524990905008625`
 - `sharpe_like_1m`: `1.2201889526773426`
-- `pnl_per_turnover`: `0.012860240287516747`
+- `pnl_per_turnover`: `0.0128602402875167`
 - `pnl_per_eth`: `27.652066263817247`
 
 ## Daily PnL
@@ -140,12 +140,32 @@ Fair value combines mid, microprice, and past-only trade imbalance. Quotes use a
 
 Rows pair fills greedily when inventory is reduced by an opposite-side fill. Long holding periods indicate inventory-path PnL rather than clean high-frequency spread economics.
 
+### Round-Trip Concentration Summary
+
+| closed_round_trips | total_roundtrip_pnl | positive_roundtrip_pnl | negative_roundtrip_pnl | top_roundtrip_pnl | top_roundtrip_pnl_share_pct | top_abs_roundtrip_pnl_share_pct | median_holding_seconds | p90_holding_seconds | max_holding_seconds |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4 | 10.645 | 10.645 | 0 | 9.34072 | 87.7477 | 87.7477 | 20071.3 | 51371.6 | 57849.8 |
+
+### Round-Trip Detail
+
 | entry_time | exit_time | entry_side | exit_side | quantity | entry_price | exit_price | holding_seconds | roundtrip_pnl | exit_order_status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-03-19 03:34:20.946980007+00:00 | 2026-03-19 13:38:36.799916218+00:00 | ask | bid | 0.087954 | 2222.5 | 2116.3 | 36255.9 | 9.34072 | pending_cancel |
 | 2026-03-19 13:38:36.799916218+00:00 | 2026-03-20 05:42:46.571920130+00:00 | bid | ask | 0.0452393 | 2116.3 | 2143.3 | 57849.8 | 1.22146 | live |
 | 2026-03-20 04:38:01.884669239+00:00 | 2026-03-20 05:42:46.571920130+00:00 | bid | ask | 0.0455754 | 2142.3 | 2143.3 | 3884.69 | 0.0455754 | live |
 | 2026-03-20 04:38:01.884669239+00:00 | 2026-03-20 05:42:48.679674362+00:00 | bid | ask | 0.0372185 | 2142.3 | 2143.3 | 3886.8 | 0.0372185 | live |
+
+### Holding-Time Distribution
+
+| holding_time_bucket | round_trips | total_roundtrip_pnl | average_roundtrip_pnl |
+| --- | --- | --- | --- |
+| 0-1m | 0 | 0 |  |
+| 1-5m | 0 | 0 |  |
+| 5-30m | 0 | 0 |  |
+| 30-60m | 0 | 0 |  |
+| 1-4h | 2 | 0.082794 | 0.041397 |
+| 4-12h | 1 | 9.34072 | 9.34072 |
+| 12h+ | 1 | 1.22146 | 1.22146 |
 
 ## Fill Statistics
 
@@ -175,9 +195,9 @@ Rows pair fills greedily when inventory is reduced by an opposite-side fill. Lon
 
 ## Order Statistics
 
-| placed_orders | filled_orders | cancelled_orders | resized_orders | fill_to_order_ratio | filled_order_ratio | cancel_to_order_ratio | top_cancel_reason | top_cancel_reason_count | average_quote_lifetime_seconds | p95_quote_lifetime_seconds | max_quote_lifetime_seconds | cancelled_before_active_orders | pct_orders_cancelled_before_active |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 110017 | 5 | 110011 | 2345 | 4.54475e-05 | 4.54475e-05 | 0.999945 | refresh_reprice | 38271 | 2.38056 | 10.25 | 10.25 | 0 | 0 |
+| placed_orders | filled_orders | cancelled_orders | resized_orders | fill_to_order_ratio | filled_order_ratio | cancel_to_order_ratio | top_cancel_reason | top_cancel_reason_count | average_quote_lifetime_seconds | p95_quote_lifetime_seconds | max_quote_lifetime_seconds | order_observation_hours | placed_orders_per_hour | cancelled_orders_per_hour | cancelled_before_active_orders | pct_orders_cancelled_before_active |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 110017 | 5 | 110011 | 2345 | 4.54475e-05 | 4.54475e-05 | 0.999945 | refresh_reprice | 38271 | 2.38056 | 10.25 | 10.25 | 71.9986 | 1528.04 | 1527.96 | 0 | 0 |
 
 ### Order Cancellation Reasons
 
@@ -237,7 +257,7 @@ The run finished with mid-marked total PnL `13.1759` USD, forced-flat PnL `13.16
 
 - `audit_summary.csv`, `spread_stats.csv`, `depth_stats.csv`
 - `summary.csv`, `daily_pnl.csv`, `fills.csv`, `orders.csv`, `equity_curve.csv`
-- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`
+- `fill_stats.csv`, `order_stats.csv`, `order_cancel_reasons.csv`, `inventory_stats.csv`, `realized_spread.csv`, `round_trips.csv`, `round_trip_summary.csv`, `holding_time_distribution.csv`, `fee_sensitivity.csv`, `event_ordering_exposure.csv`
 - Reproduction suite roots also include `fill_model_comparison.csv`, `event_ordering_sensitivity.csv`, and `run_scope.csv`.
 - `config_used.yaml`
 - `plots/equity_curve.png`, `plots/inventory.png`, `plots/spread_histogram.png`, `plots/fills_on_mid.png`, `plots/funding_inventory.png`

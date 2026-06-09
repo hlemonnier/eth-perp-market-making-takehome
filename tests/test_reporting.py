@@ -3,10 +3,11 @@ from dataclasses import replace
 import pandas as pd
 import pytest
 
+from market_maker import cli
 from market_maker.config import load_config
 from market_maker.data_audit import AuditResult
 from market_maker.metrics import MetricsBundle
-from market_maker.reporting import _fee_sensitivity, build_markdown_report
+from market_maker.reporting import _fee_sensitivity, build_markdown_report, round_trip_summary
 from market_maker.simulator import BacktestResult
 
 
@@ -112,3 +113,60 @@ def test_report_does_not_call_positive_roundtrip_pnl_clean_spread_capture():
     assert "stronger evidence of spread capture" not in report
     assert "Fill count is sparse" in report
     assert "do not interpret this as clean spread capture" in report
+
+
+def test_round_trip_summary_reports_pnl_concentration():
+    round_trips = pd.DataFrame(
+        [
+            {"roundtrip_pnl": 9.0, "holding_seconds": 36_000},
+            {"roundtrip_pnl": 1.0, "holding_seconds": 60},
+            {"roundtrip_pnl": -2.0, "holding_seconds": 30},
+        ]
+    )
+
+    summary = round_trip_summary(round_trips).iloc[0]
+
+    assert summary["closed_round_trips"] == 3
+    assert summary["total_roundtrip_pnl"] == pytest.approx(8.0)
+    assert summary["top_roundtrip_pnl_share_pct"] == pytest.approx(90.0)
+    assert summary["max_holding_seconds"] == pytest.approx(36_000)
+
+
+def test_comparison_diagnostics_flag_inventory_directional_and_negative_spread():
+    metrics = MetricsBundle(
+        overall=pd.DataFrame(
+            [
+                {
+                    "total_pnl": 100.0,
+                    "realized_trading_pnl": 1.0,
+                    "unrealized_trading_pnl": 99.0,
+                    "total_fills": 5,
+                }
+            ]
+        ),
+        daily=pd.DataFrame(),
+        fill_stats=pd.DataFrame(),
+        order_stats=pd.DataFrame(),
+        inventory_stats=pd.DataFrame([{"pct_long": 0.0, "pct_short": 95.0}]),
+        realized_spread=pd.DataFrame(
+            [
+                {"horizon_seconds": 1, "average_realized_spread": -0.2},
+                {"horizon_seconds": 5, "average_realized_spread": -0.5},
+            ]
+        ),
+    )
+    result = BacktestResult(
+        equity_curve=pd.DataFrame(),
+        fills=pd.DataFrame(),
+        orders=pd.DataFrame(),
+        metrics=metrics,
+        final_liquidation_adjusted_equity=0.0,
+    )
+
+    diagnostics = cli._comparison_diagnostics(result)
+
+    assert diagnostics["sparse_fill_warning"] is True
+    assert diagnostics["inventory_directional_warning"] is True
+    assert diagnostics["negative_realized_spread_warning"] is True
+    assert diagnostics["avg_realized_spread_1s"] == pytest.approx(-0.2)
+    assert diagnostics["comparison_warnings"] == "sparse_fills;inventory_directional_pnl;negative_realized_spread"

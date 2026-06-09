@@ -242,6 +242,35 @@ def run_audit(data: MarketData, config: AuditConfig) -> AuditResult:
     )
 
 
+def run_audit_by_day(data_dir: str | Path, days: tuple[str, ...] | list[str], config: AuditConfig) -> AuditResult:
+    from market_maker.data_loader import load_market_data
+
+    if not days:
+        raise ValueError("At least one day is required for audit.")
+    day_results: list[tuple[str, AuditResult]] = []
+    for day in days:
+        result = run_audit(load_market_data(data_dir, [str(day)]), config)
+        day_results.append((str(day), result))
+
+    summary_parts = []
+    for day, result in day_results:
+        part = result.summary.copy()
+        part.insert(0, "day", day)
+        summary_parts.append(part)
+    summary = pd.concat(summary_parts, ignore_index=True) if summary_parts else pd.DataFrame()
+    warnings = sorted(summary.loc[summary["severity"] == "warn", "check"].dropna().unique().tolist()) if not summary.empty else []
+    tick_sizes = [result.tick_size for _, result in day_results]
+    tick_size = float(pd.Series(tick_sizes).mode().iloc[0]) if tick_sizes else 0.0
+    return AuditResult(
+        tick_size=tick_size,
+        summary=summary,
+        warnings=warnings,
+        spread_stats=_aggregate_daily_stats(day_results, "spread_stats", tick_size),
+        depth_stats=_aggregate_daily_stats(day_results, "depth_stats", tick_size),
+        event_ordering_stats=_aggregate_event_ordering_stats(day_results),
+    )
+
+
 def write_audit_outputs(result: AuditResult, output_dir: str | Path) -> None:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -249,6 +278,40 @@ def write_audit_outputs(result: AuditResult, output_dir: str | Path) -> None:
     pd.DataFrame([result.spread_stats]).to_csv(output / "spread_stats.csv", index=False)
     pd.DataFrame([result.depth_stats]).to_csv(output / "depth_stats.csv", index=False)
     pd.DataFrame([result.event_ordering_stats]).to_csv(output / "event_ordering_exposure.csv", index=False)
+
+
+def _aggregate_daily_stats(day_results: list[tuple[str, AuditResult]], attr: str, tick_size: float) -> dict[str, float]:
+    keys = sorted({key for _, result in day_results for key in getattr(result, attr).keys()})
+    aggregated: dict[str, float] = {"days_audited": float(len(day_results)), "tick_size": tick_size}
+    for key in keys:
+        values = [float(getattr(result, attr)[key]) for _, result in day_results if key in getattr(result, attr)]
+        if not values:
+            continue
+        if key == "tick_size":
+            aggregated[key] = tick_size
+        else:
+            aggregated[key] = float(np.mean(values))
+            aggregated[f"{key}_min_day"] = float(np.min(values))
+            aggregated[f"{key}_max_day"] = float(np.max(values))
+    return aggregated
+
+
+def _aggregate_event_ordering_stats(day_results: list[tuple[str, AuditResult]]) -> dict[str, object]:
+    book_rows = sum(int(result.event_ordering_stats.get("book_rows", 0)) for _, result in day_results)
+    trade_rows = sum(int(result.event_ordering_stats.get("trade_rows", 0)) for _, result in day_results)
+    trade_same = sum(int(result.event_ordering_stats.get("trades_with_same_timestamp_book", 0)) for _, result in day_results)
+    book_same = sum(int(result.event_ordering_stats.get("book_updates_with_same_timestamp_trade", 0)) for _, result in day_results)
+    return {
+        "days_audited": len(day_results),
+        "book_rows": book_rows,
+        "trade_rows": trade_rows,
+        "trades_with_same_timestamp_book": trade_same,
+        "trades_with_same_timestamp_book_pct": float(trade_same / trade_rows * 100.0) if trade_rows else 0.0,
+        "book_updates_with_same_timestamp_trade": book_same,
+        "book_updates_with_same_timestamp_trade_pct": float(book_same / book_rows * 100.0) if book_rows else 0.0,
+        "default_equal_timestamp_policy": "trade_before_book",
+        "sensitivity_policy_to_review": "book_before_trade",
+    }
 
 
 def _empty_event_ordering_sensitivity(data: MarketData) -> dict[str, object]:

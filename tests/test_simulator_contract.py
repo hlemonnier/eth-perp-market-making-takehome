@@ -351,6 +351,22 @@ def test_full_core_robustness_variants_match_review_contract():
     ]
 
 
+def test_core_workflow_defaults_are_bounded_for_review_runtime():
+    assert cli.DEFAULT_CORE_SAMPLE_ROWS == 5_000
+
+
+def test_full_core_ablation_variants_match_review_contract():
+    variants = [name for name, _ in cli._ablation_variants(config(), suite_size="full_core")]
+
+    assert variants == [
+        "full",
+        "no_pressure_filter",
+        "no_microprice_alpha",
+        "no_inventory_skew",
+        "no_funding_target",
+    ]
+
+
 def test_partial_queue_depletion_starts_after_order_active_time():
     timestamp = pd.Timestamp("2026-03-19T00:00:00Z")
     simulator = Simulator(

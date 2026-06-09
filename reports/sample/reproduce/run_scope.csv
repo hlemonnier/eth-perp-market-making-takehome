@@ -1,2 +1,2 @@
 suite_size,dataset_scope,orderbook_rows,trade_rows,funding_rows,source_days
-core,sample_50000_rows,50000,952,157,2026-03-19
+core,sample_5000_rows,5000,199,16,2026-03-19
